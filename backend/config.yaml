@@ -1,0 +1,55 @@
+app:
+  env: dev
+  cors_origins:
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+
+database:
+  url: "postgresql+psycopg2://veritas:veritas@localhost:5432/veritas"
+
+redis:
+  url: "redis://localhost:6379/0"
+
+storage:
+  data_dir: "/data"
+
+ingest:
+  max_pages: 500
+
+chunking:
+  max_chars: 4000
+
+celery:
+  queues:
+    default: "default"
+    llm: "llm"
+    ocr: "ocr"
+  concurrency:
+    default: 4
+    llm: 2
+    ocr: 2
+  rate_limits:
+    llm: "10/m"
+    ocr: "20/m"
+
+llm:
+  primary_model: "claude-sonnet-4-6"
+  fallback_models:
+    - "gpt-4o"
+    - "gemini-1.5-pro"
+  max_retries: 3
+  retry_backoff_base: 2
+
+scoring:
+  weights:
+    quote_verified: 40
+    strong_modality: 15
+    due_date_resolved: 10
+    responsible_party_linked: 10
+    doc_type_aligned: 10
+    verifier_pass: 15
+  penalties:
+    weak_modality: -25
+    ocr_source: -15
+    contradiction: -30
+    missing_deadline: -10
