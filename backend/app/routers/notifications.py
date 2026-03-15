@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from ..auth.deps import require_requested_user_access
 from ..database import get_db
 from ..models import NotificationEvent, NotificationStatus, UserNotification
 
@@ -33,7 +34,7 @@ def _serialize_notification(notification: UserNotification, event: NotificationE
     }
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_requested_user_access("user_id"))])
 def list_notifications(
     user_id: UUID = Query(...),
     limit: int = Query(default=50, ge=1, le=200),
@@ -61,7 +62,7 @@ def list_notifications(
     }
 
 
-@router.put("/{notification_id}/read")
+@router.put("/{notification_id}/read", dependencies=[Depends(require_requested_user_access("user_id"))])
 def mark_notification_read(notification_id: UUID, user_id: UUID = Query(...), db: Session = Depends(get_db)):
     notification = (
         db.query(UserNotification)

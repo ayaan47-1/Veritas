@@ -18,7 +18,7 @@ VeritasLayer is an AI Operational Intelligence Layer that ingests PDFs, runs a d
 - **PDF Parsing:** PyMuPDF (`fitz`)
 - **OCR:** OLMOCR via DeepInfra (scanned pages only)
 - **LLM Routing:** LiteLLM (configured in `backend/config.yaml`)
-- **Frontend:** SvelteKit (not yet scaffolded)
+- **Frontend:** Next.js (App Router, TypeScript) with `@clerk/nextjs`
 - **Testing:** pytest + pytest-mock, no DB required for unit tests
 
 ## Common Commands
@@ -55,6 +55,8 @@ Config is loaded by `backend/app/config.py` in priority order:
 OCR env vars (not in YAML): `DEEPINFRA_API_KEY` (required for OCR), `DEEPINFRA_OLMOCR_URL`, `DEEPINFRA_OLMOCR_MODEL`.
 
 LLM env vars (read by LiteLLM, not in YAML): `OPENAI_API_KEY` (for gpt-4o), `ANTHROPIC_API_KEY` (for claude-sonnet), `GEMINI_API_KEY` (for gemini-1.5-pro). At least one must be set for stages 6-7.
+
+Clerk auth env vars: `CLERK_JWKS_URL` (e.g. `https://<domain>.clerk.accounts.dev/.well-known/jwks.json`), `CLERK_ISSUER` (e.g. `https://<domain>.clerk.accounts.dev`). Required for JWT verification in production.
 
 `settings.raw` exposes the full merged YAML dict for nested keys not surfaced on the `Settings` dataclass (e.g., `settings.raw["chunking"]["max_chars"]`).
 

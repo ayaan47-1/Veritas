@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..auth.deps import require_asset_scope, require_reviewer_or_admin, require_risk_access
 from ..database import get_db
 from ..models import (
     AuditAction,
@@ -67,7 +68,7 @@ def _serialize_risk(risk: Risk, *, evidence: list[RiskEvidence] | None = None) -
     return payload
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_asset_scope("asset_id", required_for_non_admin=True))])
 def list_risks(
     status: ReviewStatus | None = Query(default=None),
     severity: Severity | None = Query(default=None),
@@ -97,7 +98,7 @@ def list_risks(
     return {"items": items, "next_cursor": next_cursor}
 
 
-@router.get("/{risk_id}")
+@router.get("/{risk_id}", dependencies=[Depends(require_risk_access("risk_id"))])
 def get_risk(risk_id: UUID, db: Session = Depends(get_db)):
     risk = db.query(Risk).filter(Risk.id == risk_id).first()
     if not risk:
@@ -106,7 +107,13 @@ def get_risk(risk_id: UUID, db: Session = Depends(get_db)):
     return _serialize_risk(risk, evidence=evidence)
 
 
-@router.post("/{risk_id}/review")
+@router.post(
+    "/{risk_id}/review",
+    dependencies=[
+        Depends(require_reviewer_or_admin),
+        Depends(require_risk_access("risk_id")),
+    ],
+)
 def review_risk(risk_id: UUID, payload: RiskReviewIn, db: Session = Depends(get_db)):
     risk = db.query(Risk).filter(Risk.id == risk_id).first()
     if not risk:

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..auth.deps import require_authenticated, require_reviewer_or_admin
 from ..database import get_db
 from ..models import AuditAction, AuditLog, Entity, EntityMention
 
@@ -49,7 +50,7 @@ def _serialize_mention(mention: EntityMention) -> dict:
     }
 
 
-@router.get("/entities")
+@router.get("/entities", dependencies=[Depends(require_authenticated)])
 def list_entities(
     limit: int = Query(default=100, ge=1, le=500),
     cursor: int = Query(default=0, ge=0),
@@ -62,7 +63,7 @@ def list_entities(
     return {"items": items, "next_cursor": next_cursor}
 
 
-@router.get("/entities/suggestions")
+@router.get("/entities/suggestions", dependencies=[Depends(require_reviewer_or_admin)])
 def list_entity_suggestions(
     limit: int = Query(default=100, ge=1, le=500),
     cursor: int = Query(default=0, ge=0),
@@ -82,7 +83,7 @@ def list_entity_suggestions(
     return {"items": items, "next_cursor": next_cursor}
 
 
-@router.post("/entities/{entity_id}/merge")
+@router.post("/entities/{entity_id}/merge", dependencies=[Depends(require_reviewer_or_admin)])
 def merge_entity(entity_id: UUID, payload: MergeEntityIn, db: Session = Depends(get_db)):
     target = db.query(Entity).filter(Entity.id == entity_id).first()
     if not target:
@@ -125,7 +126,7 @@ def merge_entity(entity_id: UUID, payload: MergeEntityIn, db: Session = Depends(
     return _serialize_entity(target)
 
 
-@router.post("/entity-mentions/{mention_id}/resolve")
+@router.post("/entity-mentions/{mention_id}/resolve", dependencies=[Depends(require_reviewer_or_admin)])
 def resolve_entity_mention(mention_id: UUID, payload: ResolveMentionIn, db: Session = Depends(get_db)):
     mention = db.query(EntityMention).filter(EntityMention.id == mention_id).first()
     if not mention:

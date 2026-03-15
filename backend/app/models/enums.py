@@ -12,6 +12,7 @@ class UserRole(str, enum.Enum):
 class OIDCProvider(str, enum.Enum):
     google = "google"
     microsoft = "microsoft"
+    clerk = "clerk"
 
 
 class DocumentType(str, enum.Enum):

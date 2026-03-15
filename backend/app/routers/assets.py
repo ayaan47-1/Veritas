@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..auth.deps import require_admin, require_asset_scope, require_authenticated
 from ..database import get_db
 from ..models import Asset, AuditAction, AuditLog, Document, Obligation, Risk, UserAssetAssignment
 
@@ -31,7 +32,7 @@ def _serialize_asset(asset: Asset) -> dict:
     }
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_authenticated)])
 def list_assets(user_id: UUID | None = Query(default=None), db: Session = Depends(get_db)):
     query = db.query(Asset)
     if user_id is not None:
@@ -42,7 +43,7 @@ def list_assets(user_id: UUID | None = Query(default=None), db: Session = Depend
     return {"items": [_serialize_asset(asset) for asset in assets], "next_cursor": None}
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_admin)])
 def create_asset(payload: AssetCreateIn, db: Session = Depends(get_db)):
     asset = Asset(
         id=uuid.uuid4(),
@@ -66,7 +67,7 @@ def create_asset(payload: AssetCreateIn, db: Session = Depends(get_db)):
     return _serialize_asset(asset)
 
 
-@router.get("/{asset_id}")
+@router.get("/{asset_id}", dependencies=[Depends(require_asset_scope("asset_id"))])
 def get_asset(asset_id: UUID, db: Session = Depends(get_db)):
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:

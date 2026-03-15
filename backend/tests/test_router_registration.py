@@ -57,8 +57,6 @@ def test_all_mvp_routers_are_registered():
         ("/assets", "GET"),
         ("/assets", "POST"),
         ("/assets/{asset_id}", "GET"),
-        ("/auth/login/{provider}", "GET"),
-        ("/auth/callback", "GET"),
         ("/users/me", "GET"),
         ("/users", "GET"),
         ("/users/{user_id}/role", "PUT"),

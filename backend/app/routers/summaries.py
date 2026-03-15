@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from ..auth.deps import require_asset_scope
 from ..database import get_db
 from ..models import Document, Obligation, Risk
 
@@ -46,12 +47,12 @@ def _weekly_metrics(asset_id: UUID | None, db: Session) -> dict:
     }
 
 
-@router.get("/weekly")
+@router.get("/weekly", dependencies=[Depends(require_asset_scope("asset_id", required_for_non_admin=True))])
 def get_weekly_summary(asset_id: UUID | None = Query(default=None), db: Session = Depends(get_db)):
     return _weekly_metrics(asset_id=asset_id, db=db)
 
 
-@router.get("/weekly/narrative")
+@router.get("/weekly/narrative", dependencies=[Depends(require_asset_scope("asset_id", required_for_non_admin=True))])
 def get_weekly_narrative(asset_id: UUID | None = Query(default=None), db: Session = Depends(get_db)):
     metrics = _weekly_metrics(asset_id=asset_id, db=db)
     narrative = (

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..auth.deps import require_asset_scope, require_obligation_access, require_reviewer_or_admin
 from ..database import get_db
 from ..models import (
     AuditAction,
@@ -72,7 +73,7 @@ def _serialize_obligation(obligation: Obligation, *, evidence: list[ObligationEv
     return payload
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_asset_scope("asset_id", required_for_non_admin=True))])
 def list_obligations(
     status: ReviewStatus | None = Query(default=None),
     severity: Severity | None = Query(default=None),
@@ -99,7 +100,7 @@ def list_obligations(
     return {"items": items, "next_cursor": next_cursor}
 
 
-@router.get("/{obligation_id}")
+@router.get("/{obligation_id}", dependencies=[Depends(require_obligation_access("obligation_id"))])
 def get_obligation(obligation_id: UUID, db: Session = Depends(get_db)):
     obligation = db.query(Obligation).filter(Obligation.id == obligation_id).first()
     if not obligation:
@@ -108,7 +109,13 @@ def get_obligation(obligation_id: UUID, db: Session = Depends(get_db)):
     return _serialize_obligation(obligation, evidence=evidence)
 
 
-@router.post("/{obligation_id}/review")
+@router.post(
+    "/{obligation_id}/review",
+    dependencies=[
+        Depends(require_reviewer_or_admin),
+        Depends(require_obligation_access("obligation_id")),
+    ],
+)
 def review_obligation(obligation_id: UUID, payload: ObligationReviewIn, db: Session = Depends(get_db)):
     obligation = db.query(Obligation).filter(Obligation.id == obligation_id).first()
     if not obligation:

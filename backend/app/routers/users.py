@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..auth.deps import require_admin, require_authenticated
 from ..database import get_db
 from ..models import AuditAction, AuditLog, User, UserAssetAssignment, UserRole
 
@@ -37,7 +38,7 @@ def _serialize_user(user: User) -> dict:
     }
 
 
-@router.get("/me")
+@router.get("/me", dependencies=[Depends(require_authenticated)])
 def get_me(user_id: UUID = Query(...), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -45,13 +46,13 @@ def get_me(user_id: UUID = Query(...), db: Session = Depends(get_db)):
     return _serialize_user(user)
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_admin)])
 def list_users(db: Session = Depends(get_db)):
     users = db.query(User).order_by(User.created_at.desc()).all()
     return {"items": [_serialize_user(user) for user in users], "next_cursor": None}
 
 
-@router.put("/{user_id}/role")
+@router.put("/{user_id}/role", dependencies=[Depends(require_admin)])
 def update_user_role(user_id: UUID, payload: UserRoleUpdateIn, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -74,7 +75,7 @@ def update_user_role(user_id: UUID, payload: UserRoleUpdateIn, db: Session = Dep
     return _serialize_user(user)
 
 
-@router.post("/{user_id}/assets")
+@router.post("/{user_id}/assets", dependencies=[Depends(require_admin)])
 def assign_user_asset(user_id: UUID, payload: UserAssetAssignIn, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -109,7 +110,7 @@ def assign_user_asset(user_id: UUID, payload: UserAssetAssignIn, db: Session = D
     return {"id": str(assignment.id), "user_id": str(assignment.user_id), "asset_id": str(assignment.asset_id)}
 
 
-@router.delete("/{user_id}/assets/{asset_id}")
+@router.delete("/{user_id}/assets/{asset_id}", dependencies=[Depends(require_admin)])
 def remove_user_asset(user_id: UUID, asset_id: UUID, db: Session = Depends(get_db)):
     assignment = (
         db.query(UserAssetAssignment)
