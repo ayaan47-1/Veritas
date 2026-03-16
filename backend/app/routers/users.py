@@ -4,11 +4,11 @@ import uuid
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from ..auth.deps import require_admin, require_authenticated
+from ..auth.deps import get_current_user, require_admin, require_authenticated
 from ..database import get_db
 from ..models import AuditAction, AuditLog, User, UserAssetAssignment, UserRole
 
@@ -39,11 +39,8 @@ def _serialize_user(user: User) -> dict:
 
 
 @router.get("/me", dependencies=[Depends(require_authenticated)])
-def get_me(user_id: UUID = Query(...), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return _serialize_user(user)
+def get_me(current_user: User = Depends(get_current_user)):
+    return _serialize_user(current_user)
 
 
 @router.get("", dependencies=[Depends(require_admin)])
