@@ -159,8 +159,62 @@ Latest validation snapshot (2026-03-12):
 - **No local OCR fallback.** Scanned pages fail to `partially_processed` if DeepInfra is unavailable.
 - **`_helpers.update_parse_status` guards failed state.** Once `failed`, intermediate status updates are no-ops.
 
-## Implementation Status for Handoff
+## Implementation Status
 
-All 11 pipeline stages are implemented with TDD coverage and LLM calls are live (no stubs remaining). Stage 11 (`emit_notifications`) emits `processing_complete` and `risk_detected` events, fans out to uploader + asset-assigned users, and creates `user_notifications` for `in_app` plus optional `email` when `notifications.email_enabled=true`. LLM routing uses `services/llm.py` (LiteLLM wrapper) with `claude-sonnet-4-6` as primary. Current baseline: **42 passing tests**.
+All 11 pipeline stages implemented. All API routers implemented. Clerk JWT auth live. Next.js frontend scaffolded with Clerk. Postgres running with migrations applied. Current baseline: **54 passing tests**.
 
-**Next:** API layer — routers for obligations, risks, evidence, review actions, and asset queries.
+**Next:** Frontend review UI — obligations list, risks list, review modal, asset list.
+
+## Frontend Implementation (for Codex)
+
+### Stack
+- Next.js 16, App Router, TypeScript, Tailwind CSS v4
+- `@clerk/nextjs` already installed and wired (`src/proxy.ts`, `src/app/layout.tsx`)
+- Location: `frontend/src/`
+
+### Auth pattern (use on every API call)
+```typescript
+"use client";
+import { useAuth } from "@clerk/nextjs";
+
+const { getToken } = useAuth();
+const token = await getToken();
+const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/obligations`, {
+  headers: { Authorization: `Bearer ${token}` },
+});
+```
+
+For server components, use `auth()` from `@clerk/nextjs/server` instead.
+
+### Current user
+`GET /users/me` returns `{ id, email, name, role }`. Cache this — `id` is required as `reviewer_id` when submitting reviews.
+
+### Build order (P0 first)
+1. `src/app/page.tsx` — Asset list (`GET /assets`). Cards showing asset name + pending obligation count.
+2. `src/app/obligations/page.tsx` — Obligations table (`GET /obligations?asset_id=...`). Columns: text, type, severity, status, due date. Inline approve/reject buttons.
+3. `src/app/risks/page.tsx` — Risks table (`GET /risks?asset_id=...`). Same pattern.
+4. Review modal (shared component) — `POST /obligations/{id}/review` or `POST /risks/{id}/review`. Fields: decision (approve/reject/edit_approve), reviewer_confidence (0–100 slider), reason (textarea).
+
+### Key API shapes
+See `MVP_ARCHITECTURE.md §6.2` for full request/response shapes.
+
+- **Pagination:** all lists return `{ items, next_cursor }`. Pass `cursor=0` to start.
+- **Status colors:** `needs_review` → yellow, `confirmed` → green, `rejected` → red/muted
+- **Severity colors:** `critical` → red, `high` → orange, `medium` → yellow, `low` → blue
+- **`reviewer_id`** in review POST must be the UUID from `GET /users/me`
+
+### File layout
+```
+frontend/src/
+  app/
+    layout.tsx          # ClerkProvider already here
+    page.tsx            # → asset list
+    obligations/
+      page.tsx          # → obligations table
+    risks/
+      page.tsx          # → risks table
+  components/
+    ReviewModal.tsx     # shared approve/reject modal
+    StatusBadge.tsx     # colored pill for needs_review/confirmed/rejected
+    SeverityBadge.tsx   # colored pill for low/medium/high/critical
+```

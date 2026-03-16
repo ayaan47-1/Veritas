@@ -3,13 +3,16 @@
 **VeritasLayer — Authoritative Implementation Reference**
 **Status:** Locked for MVP. This is the single source of truth for implementation.
 
-**Implementation progress (as of 2026-03-12):**
-- ✅ Stages 1–11: Ingest, Parse, OCR, Normalize, Chunk, Classify, Extract, Verify, Score, Persist, Notify — implemented and unit-tested (42 tests passing)
-- ✅ Stage 11 behavior: `processing_complete` + conditional `risk_detected` event emission, recipient fanout, and channel fanout (`in_app`, optional `email`)
-- ✅ DB schema: all 22 tables, single Alembic migration (head: `c03dec85f67a`)
-- ✅ LLM wired: `services/llm.py` (LiteLLM) replaces stubs in stages 6–7; primary model `claude-sonnet-4-6`, fallbacks `gpt-4o`, `gemini-1.5-pro`
-- 🔲 All routers except `/ingest`, `/documents`, `/health`
-- 🔲 Auth, frontend, Celery Beat schedules, prompt registry
+**Implementation progress (as of 2026-03-15):**
+- ✅ Stages 1–11: fully implemented and unit-tested (54 tests passing)
+- ✅ DB schema: all 22 tables, migrations applied (head: `e1f2a3b4c5d6`)
+- ✅ LLM wired: `services/llm.py` (LiteLLM), primary `claude-sonnet-4-6`
+- ✅ All API routers: obligations, risks, entities, summaries, assets, users, notifications, config, ingest, documents
+- ✅ Auth: Clerk JWT verification (`backend/app/auth/clerk.py`), user upsert on first login
+- ✅ Frontend: Next.js 16 scaffolded (`frontend/`), `@clerk/nextjs` wired, Clerk sign-in live
+- ✅ Postgres running (Docker), migrations applied
+- 🔲 Frontend review UI (obligations, risks, ingest)
+- 🔲 Celery Beat schedules, prompt registry
 
 ---
 
@@ -997,41 +1000,103 @@ Updated by each stage as it processes pages.
 
 ## 6. Frontend MVP Screens
 
+### 6.0 Tech Stack
+
+- **Framework:** Next.js 16, App Router, TypeScript
+- **Auth:** `@clerk/nextjs` — `useAuth().getToken()` for client components, `auth()` for server components/route handlers
+- **Styling:** Tailwind CSS v4
+- **Location:** `frontend/` (scaffolded, Clerk wired, sign-in live)
+- **API base:** `http://localhost:8000` (dev), env var `NEXT_PUBLIC_API_URL` for other envs
+
+**Auth pattern for all API calls:**
+```typescript
+const { getToken } = useAuth();
+const token = await getToken();
+const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/obligations?asset_id=${assetId}`, {
+  headers: { Authorization: `Bearer ${token}` },
+});
+```
+
+**Login:** Handled entirely by Clerk — `<SignInButton />` redirects to Clerk-hosted UI. No custom `/login` route needed.
+
 ### 6.1 Screen Inventory
 
-| # | Screen | Route | Access | Purpose |
-|:-:|--------|-------|--------|---------|
-| 1 | Login | `/login` | Public | OIDC sign-in (Google / Microsoft buttons) |
-| 2 | Asset List | `/` | All authenticated | Top-level navigation. Asset cards: name, doc count, pending review count |
-| 3 | Document List | `/assets/{id}/documents` | Asset-assigned users | Document table: name, type, status, upload date, page count. Upload dropzone. Filter by doc_type, parse_status |
-| 4 | Document Detail | `/documents/{id}` | Asset-assigned users | Processing status banner (polling). Tabs: Obligations, Risks, Pages. Counts per status tier |
-| 5 | Obligations Table | `/obligations` | Asset-assigned users | Cross-asset table with filters: status, severity, asset, document, due date range. Sortable columns. Inline review action buttons |
-| 6 | Risks Table | `/risks` | Asset-assigned users | Same pattern as obligations table. Filter by risk_type, severity, status |
-| 7 | Evidence Viewer | `/obligations/{id}/evidence` or `/risks/{id}/evidence` | Asset-assigned users | Split panel: left = PDF page via pdf.js with bbox highlight rectangles (falls back to text-with-highlight when no bbox). Right = item detail + quote in context |
-| 8 | Review Modal | (overlay on tables) | Reviewer, Admin | Decision: approve / edit+approve / reject. Editable fields: due_date, severity, responsible_party, obligation_text. Confidence slider. Reason text area |
-| 9 | Entity Management | `/entities` | Reviewer, Admin | Global entity list. Pending suggestions queue (accept/reject/reassign). Merge dialog (select two entities, confirm). Alias editor |
-| 10 | Deadline View | `/deadlines` | Asset-assigned users | Obligations sorted by due_date. Grouped: overdue, next 7 days, next 14 days, next 30 days. Link to evidence viewer |
-| 11 | Notifications | (bell dropdown) | All authenticated | Notification list: event type icon, message, timestamp, read/unread. Mark as read. Click navigates to relevant item |
-| 12 | Admin: Users | `/admin/users` | Admin only | User table: email, name, role, last login. Role dropdown. Asset assignment checkboxes |
-| 13 | Admin: Config | `/admin/config` | Admin only | Key-value editor for config_overrides. Shows current effective value (merged from YAML + DB). Edit/reset to default |
+| # | Screen | Route | Priority | Purpose |
+|:-:|--------|-------|----------|---------|
+| 1 | Asset List | `/` | **P0** | Top-level navigation. Asset cards: name, doc count, pending review count |
+| 2 | Obligations Table | `/obligations` | **P0** | Cross-asset table: status, severity, due date. Inline approve/reject buttons. Cursor-paginated |
+| 3 | Risks Table | `/risks` | **P0** | Same pattern as obligations. Filter by risk_type, severity, status |
+| 4 | Document List | `/assets/[id]/documents` | **P1** | Document table with upload dropzone. Filter by doc_type, parse_status |
+| 5 | Document Detail | `/documents/[id]` | **P1** | Processing status banner (poll every 3s). Tabs: Obligations, Risks |
+| 6 | Review Modal | (overlay on tables) | **P0** | Decision: approve / edit+approve / reject. Confidence slider. Reason text area |
+| 7 | Evidence Viewer | `/obligations/[id]` | **P1** | Quote in context + item detail panel |
+| 8 | Notifications | (bell dropdown) | **P2** | Notification list, mark as read |
+| 9 | Admin: Users | `/admin/users` | **P2** | User table, role assignment, asset assignment |
+| 10 | Admin: Config | `/admin/config` | **P2** | Key-value editor for config_overrides |
 
-### 6.2 Not in MVP Frontend
+### 6.2 API Shapes (key endpoints)
 
-- Calendar/Gantt view for deadlines
-- Advanced analytics or charts
-- Webhook management UI (admin via API/CLI only)
-- Prompt editor UI (managed via files + DB, not frontend)
-- Batch operations (bulk approve/reject)
-- Document comparison/diff view
+**List obligations:**
+```
+GET /obligations?asset_id={uuid}&status={needs_review|confirmed|rejected}&severity={low|medium|high|critical}&limit=20&cursor=0
+Authorization: Bearer {token}
+
+Response: { items: Obligation[], next_cursor: string | null }
+```
+
+**Obligation object:**
+```typescript
+{
+  id: string;
+  document_id: string;
+  obligation_type: string;   // compliance | submission | payment | inspection | notification | other
+  obligation_text: string;
+  modality: string;          // must | shall | required | should | may | unknown
+  due_kind: string;          // absolute | relative | resolved_relative | none
+  due_date: string | null;   // ISO 8601
+  severity: string;          // low | medium | high | critical
+  status: string;            // needs_review | confirmed | rejected
+  system_confidence: number;
+  reviewer_confidence: number | null;
+  has_external_reference: boolean;
+  contradiction_flag: boolean;
+  created_at: string;
+}
+```
+
+**Review an obligation:**
+```
+POST /obligations/{id}/review
+Authorization: Bearer {token}
+{ decision: "approve" | "reject" | "edit_approve", reviewer_id: uuid, reviewer_confidence: 0-100, reason?: string, field_edits?: object }
+
+Response: { obligation: Obligation, review: ObligationReview }
+```
+
+**List risks:** `GET /risks?asset_id={uuid}&status=...&severity=...&limit=20&cursor=0`
+
+**Review a risk:** `POST /risks/{id}/review` (same body shape as obligation review)
+
+**Current user:** `GET /users/me` → `{ id, email, name, role, oidc_subject }`
+
+**Assets:** `GET /assets` → `{ items: Asset[] }`, `POST /assets` → `{ id, name, ... }`
+
+### 6.3 Not in MVP Frontend
+
+- Evidence viewer with PDF.js bbox highlighting
+- Entity management
+- Deadline calendar/Gantt view
+- Batch approve/reject
 - Export to PDF/Excel
 
-### 6.3 Frontend-Backend Communication
+### 6.4 Implementation Notes for Codex
 
-- **Protocol:** REST API, JSON payloads
-- **Auth:** OIDC tokens passed as `Authorization: Bearer {token}` headers
-- **Processing progress:** polling `GET /documents/{id}/status` every 3 seconds while `parse_status` is not terminal
-- **Pagination:** cursor-based for all list endpoints
-- **PDF rendering:** pdf.js for the evidence viewer. PDF served from `/data/originals/` (or `/data/processed/` for OCR'd docs) via a backend endpoint that validates access
+1. **All pages are protected.** Wrap the app in `clerkMiddleware()` (already in `src/proxy.ts`). Use `useAuth()` to get tokens client-side.
+2. **Cursor pagination.** All list endpoints return `{ items, next_cursor }`. Pass `cursor=0` to start, then use `next_cursor` value for the next page.
+3. **Review modal.** `reviewer_id` must be the current user's UUID from `GET /users/me`. Cache this after first fetch.
+4. **Status colors.** `needs_review` → yellow, `confirmed` → green, `rejected` → red/muted. `severity` critical → red, high → orange, medium → yellow, low → blue.
+5. **No mock data.** Use real API calls. If backend is unreachable, show an error state.
+6. **NEXT_PUBLIC_API_URL.** Read backend URL from `process.env.NEXT_PUBLIC_API_URL`, defaulting to `http://localhost:8000`.
 
 ---
 
