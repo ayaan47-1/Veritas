@@ -92,6 +92,44 @@ export type DocumentStatus = {
   pages_failed: number;
 };
 
+export type TextSpan = {
+  id: string;
+  char_start: number;
+  char_end: number;
+  bbox_x1: number;
+  bbox_y1: number;
+  bbox_x2: number;
+  bbox_y2: number;
+  span_text: string;
+};
+
+export type DocumentPage = {
+  document_id: string;
+  page_number: number;
+  raw_text: string;
+  normalized_text: string;
+  text_source: string;
+  processing_status: string;
+  processing_error: string | null;
+  text_spans: TextSpan[];
+};
+
+export type ObligationEvidence = {
+  id: string;
+  document_id: string;
+  page_number: number;
+  quote: string;
+  raw_char_start: number;
+  raw_char_end: number;
+  normalized_char_start: number;
+  normalized_char_end: number;
+  source: string;
+};
+
+export type ObligationDetail = Obligation & {
+  evidence: ObligationEvidence[];
+};
+
 export type ReviewPayload = {
   decision: ReviewDecision;
   reviewer_id: string;

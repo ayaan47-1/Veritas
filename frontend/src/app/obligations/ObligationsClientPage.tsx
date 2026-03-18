@@ -107,13 +107,18 @@ export default function ObligationsClientPage() {
                   <th className="px-4 py-3">Severity</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Due Date</th>
+                  <th className="px-4 py-3">Evidence</th>
                   <th className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item) => (
                   <tr key={item.id} className="border-t border-slate-100 align-top">
-                    <td className="max-w-xl px-4 py-3 text-slate-900">{item.obligation_text}</td>
+                    <td className="max-w-xl px-4 py-3 text-slate-900">
+                      <Link href={`/obligations/${item.id}`} className="underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700">
+                        {item.obligation_text}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3 text-slate-600">{item.obligation_type}</td>
                     <td className="px-4 py-3">
                       <SeverityBadge severity={item.severity} />
@@ -122,6 +127,14 @@ export default function ObligationsClientPage() {
                       <StatusBadge status={item.status} />
                     </td>
                     <td className="px-4 py-3 text-slate-600">{item.due_date ? item.due_date.slice(0, 10) : "—"}</td>
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/obligations/${item.id}`}
+                        className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                      >
+                        View
+                      </Link>
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
                         <button

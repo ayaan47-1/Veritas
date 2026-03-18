@@ -12,7 +12,7 @@
 - ✅ Frontend: Next.js 16 scaffolded (`frontend/`), `@clerk/nextjs` wired, Clerk sign-in live
 - ✅ Postgres running (Docker), migrations applied
 - ✅ Frontend P0 + core P1: asset list, obligations, risks, review modal, asset documents, document detail
-- 🔲 Frontend remaining P1: evidence viewer (`/obligations/[id]`)
+- ✅ Frontend P1 evidence viewer: obligation quote/context panel (`/obligations/[id]`)
 - 🔲 Celery Beat schedules, prompt registry
 
 ---
@@ -1039,7 +1039,7 @@ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/obligations?asset_id
 - ✅ `/`, `/obligations`, `/risks`
 - ✅ `/assets/[id]/documents` (upload + filters + pagination)
 - ✅ `/documents/[id]` (status polling every 3s, obligations/risks tabs, inline review)
-- 🔲 `/obligations/[id]` evidence viewer
+- ✅ `/obligations/[id]` evidence viewer
 - 🔲 P2 admin/notifications screens
 
 ### 6.2 API Shapes (key endpoints)

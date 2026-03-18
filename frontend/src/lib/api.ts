@@ -2,8 +2,10 @@ import type {
   Asset,
   CurrentUser,
   DocumentDetail,
+  DocumentPage,
   DocumentStatus,
   DocumentSummary,
+  ObligationDetail,
   Obligation,
   PaginatedResponse,
   ReviewPayload,
@@ -101,6 +103,14 @@ export async function getDocumentStatus(getToken: GetTokenFn, documentId: string
   return apiFetch<DocumentStatus>(`/documents/${documentId}/status`, getToken);
 }
 
+export async function getDocumentPage(
+  getToken: GetTokenFn,
+  documentId: string,
+  pageNumber: number,
+): Promise<DocumentPage> {
+  return apiFetch<DocumentPage>(`/documents/${documentId}/pages/${pageNumber}`, getToken);
+}
+
 export async function getObligations(
   getToken: GetTokenFn,
   params: {
@@ -128,6 +138,10 @@ export async function getObligations(
     query.set("severity", params.severity);
   }
   return apiFetch<PaginatedResponse<Obligation>>(`/obligations?${query.toString()}`, getToken);
+}
+
+export async function getObligation(getToken: GetTokenFn, obligationId: string): Promise<ObligationDetail> {
+  return apiFetch<ObligationDetail>(`/obligations/${obligationId}`, getToken);
 }
 
 export async function getRisks(

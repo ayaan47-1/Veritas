@@ -169,9 +169,10 @@ Implemented frontend screens:
 - Risks table (`/risks`)
 - Asset document list + upload (`/assets/[id]/documents`)
 - Document detail with status polling + tabs (`/documents/[id]`)
+- Obligation evidence viewer (`/obligations/[id]`)
 - Shared review modal + status/severity badges
 
-**Next:** P1 evidence viewer (`/obligations/[id]`), then P2 screens (notifications/admin).
+**Next:** P2 screens (notifications/admin), then polish (filters/search on tables).
 
 ## Frontend Implementation (for Codex)
 
@@ -204,7 +205,7 @@ For server components, use `auth()` from `@clerk/nextjs/server` instead.
 4. ✅ Review modal (shared component) — `POST /obligations/{id}/review` or `POST /risks/{id}/review`. Fields: decision (approve/reject/edit_approve), reviewer_confidence (0–100 slider), reason (textarea).
 5. ✅ `src/app/assets/[id]/documents/page.tsx` — Document list + upload dropzone.
 6. ✅ `src/app/documents/[id]/page.tsx` — Document detail with status polling and obligations/risks tabs.
-7. 🔲 `src/app/obligations/[id]/page.tsx` — Evidence viewer.
+7. ✅ `src/app/obligations/[id]/page.tsx` — Evidence viewer.
 
 ### Key API shapes
 See `MVP_ARCHITECTURE.md §6.2` for full request/response shapes.
@@ -222,6 +223,8 @@ frontend/src/
     page.tsx                # → asset list (implemented)
     obligations/
       page.tsx              # → obligations table
+    obligations/[id]/
+      page.tsx              # → obligation evidence viewer
     risks/
       page.tsx              # → risks table
     assets/[id]/documents/

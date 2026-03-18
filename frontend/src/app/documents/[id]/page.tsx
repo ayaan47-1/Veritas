@@ -233,6 +233,7 @@ export default function DocumentDetailPage() {
                         <th className="px-4 py-3">Severity</th>
                         <th className="px-4 py-3">Status</th>
                         <th className="px-4 py-3">Due Date</th>
+                        <th className="px-4 py-3">Evidence</th>
                         <th className="px-4 py-3">Actions</th>
                       </tr>
                     </thead>
@@ -248,6 +249,14 @@ export default function DocumentDetailPage() {
                             <StatusBadge status={item.status} />
                           </td>
                           <td className="px-4 py-3 text-slate-600">{item.due_date ? item.due_date.slice(0, 10) : "—"}</td>
+                          <td className="px-4 py-3">
+                            <Link
+                              href={`/obligations/${item.id}`}
+                              className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                            >
+                              View
+                            </Link>
+                          </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap gap-2">
                               <button
