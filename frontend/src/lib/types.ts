@@ -130,6 +130,23 @@ export type ObligationDetail = Obligation & {
   evidence: ObligationEvidence[];
 };
 
+export type NotificationEvent = {
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string | null;
+};
+
+export type UserNotification = {
+  id: string;
+  user_id: string;
+  event_id: string;
+  channel: string;
+  status: "pending" | "sent" | "failed" | "read";
+  sent_at: string | null;
+  read_at: string | null;
+  event: NotificationEvent | null;
+};
+
 export type ReviewPayload = {
   decision: ReviewDecision;
   reviewer_id: string;

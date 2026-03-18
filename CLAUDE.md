@@ -170,9 +170,10 @@ Implemented frontend screens:
 - Asset document list + upload (`/assets/[id]/documents`)
 - Document detail with status polling + tabs (`/documents/[id]`)
 - Obligation evidence viewer (`/obligations/[id]`)
+- Notifications bell dropdown (header overlay)
 - Shared review modal + status/severity badges
 
-**Next:** P2 screens (notifications/admin), then polish (filters/search on tables).
+**Next:** P2 admin screens (`/admin/users`, `/admin/config`), then polish (filters/search on tables).
 
 ## Frontend Implementation (for Codex)
 
@@ -206,6 +207,9 @@ For server components, use `auth()` from `@clerk/nextjs/server` instead.
 5. ✅ `src/app/assets/[id]/documents/page.tsx` — Document list + upload dropzone.
 6. ✅ `src/app/documents/[id]/page.tsx` — Document detail with status polling and obligations/risks tabs.
 7. ✅ `src/app/obligations/[id]/page.tsx` — Evidence viewer.
+8. ✅ Header notifications dropdown — list + mark-as-read.
+9. 🔲 `src/app/admin/users/page.tsx` — Users/roles/asset assignment.
+10. 🔲 `src/app/admin/config/page.tsx` — Config overrides editor.
 
 ### Key API shapes
 See `MVP_ARCHITECTURE.md §6.2` for full request/response shapes.

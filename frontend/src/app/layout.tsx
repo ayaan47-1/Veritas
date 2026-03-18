@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ClerkProvider, SignInButton, SignUpButton, UserButton, Show } from "@clerk/nextjs";
+import NotificationBell from "@/components/NotificationBell";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -42,6 +43,7 @@ export default function RootLayout({
                   <SignUpButton />
                 </Show>
                 <Show when="signed-in">
+                  <NotificationBell />
                   <UserButton />
                 </Show>
               </div>

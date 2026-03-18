@@ -13,6 +13,8 @@
 - ✅ Postgres running (Docker), migrations applied
 - ✅ Frontend P0 + core P1: asset list, obligations, risks, review modal, asset documents, document detail
 - ✅ Frontend P1 evidence viewer: obligation quote/context panel (`/obligations/[id]`)
+- ✅ Frontend notifications dropdown: list + mark-as-read (header bell)
+- 🔲 Remaining P2 frontend: admin users/config screens
 - 🔲 Celery Beat schedules, prompt registry
 
 ---
@@ -1040,7 +1042,8 @@ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/obligations?asset_id
 - ✅ `/assets/[id]/documents` (upload + filters + pagination)
 - ✅ `/documents/[id]` (status polling every 3s, obligations/risks tabs, inline review)
 - ✅ `/obligations/[id]` evidence viewer
-- 🔲 P2 admin/notifications screens
+- ✅ Notifications bell dropdown (list + mark-as-read)
+- 🔲 P2 admin screens
 
 ### 6.2 API Shapes (key endpoints)
 

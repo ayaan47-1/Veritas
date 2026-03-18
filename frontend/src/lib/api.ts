@@ -5,6 +5,7 @@ import type {
   DocumentPage,
   DocumentStatus,
   DocumentSummary,
+  UserNotification,
   ObligationDetail,
   Obligation,
   PaginatedResponse,
@@ -233,4 +234,27 @@ export async function ingestDocument(
   }
 
   return (await response.json()) as { document_id: string };
+}
+
+export async function getNotifications(
+  getToken: GetTokenFn,
+  params: { userId: string; limit?: number; cursor?: string | number },
+): Promise<PaginatedResponse<UserNotification>> {
+  const query = new URLSearchParams({
+    user_id: params.userId,
+    limit: String(params.limit ?? 20),
+    cursor: String(params.cursor ?? 0),
+  });
+  return apiFetch<PaginatedResponse<UserNotification>>(`/notifications?${query.toString()}`, getToken);
+}
+
+export async function markNotificationRead(
+  getToken: GetTokenFn,
+  notificationId: string,
+  userId: string,
+): Promise<UserNotification> {
+  const query = new URLSearchParams({ user_id: userId });
+  return apiFetch<UserNotification>(`/notifications/${notificationId}/read?${query.toString()}`, getToken, {
+    method: "PUT",
+  });
 }
