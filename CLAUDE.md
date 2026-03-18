@@ -37,7 +37,7 @@ python3 -m compileall backend/app backend/alembic -q
 # Database migrations
 python3 -m alembic -c backend/alembic.ini upgrade head
 python3 -m alembic -c backend/alembic.ini revision --autogenerate -m "description"
-python3 -m alembic -c backend/alembic.ini heads   # current head: c03dec85f67a
+python3 -m alembic -c backend/alembic.ini heads   # current head: e1f2a3b4c5d6
 
 # Dev services
 uvicorn backend.app.main:app --reload
@@ -132,11 +132,11 @@ Service-layer tests (`test_chunking.py`, `test_normalization.py`) have no mockin
 
 `test_llm_service.py` tests `services/llm.py` directly: pure parsing tests need no mocks; integration tests patch `backend.app.services.llm.litellm` (the module-level import) to inject a fake `litellm.completion` return value.
 
-Expected baseline: **42 tests, all passing**.
+Expected baseline: **54 tests, all passing**.
 
-Latest validation snapshot (2026-03-12):
+Latest validation snapshot (2026-03-15):
 - `python3 -m pytest -q backend/tests/test_llm_service.py` → `15 passed`
-- `python3 -m pytest -q backend/tests` → `42 passed`
+- `python3 -m pytest -q backend/tests` → `54 passed`
 
 ## Non-Negotiable Rules
 
@@ -207,14 +207,27 @@ See `MVP_ARCHITECTURE.md §6.2` for full request/response shapes.
 ```
 frontend/src/
   app/
-    layout.tsx          # ClerkProvider already here
-    page.tsx            # → asset list
+    layout.tsx              # ClerkProvider + sticky nav (Assets / Obligations / Risks links)
+    page.tsx                # → asset list (implemented)
     obligations/
-      page.tsx          # → obligations table
+      page.tsx              # → obligations table
     risks/
-      page.tsx          # → risks table
+      page.tsx              # → risks table
+    assets/[id]/documents/
+      page.tsx              # → document list + upload dropzone
   components/
-    ReviewModal.tsx     # shared approve/reject modal
-    StatusBadge.tsx     # colored pill for needs_review/confirmed/rejected
-    SeverityBadge.tsx   # colored pill for low/medium/high/critical
+    ReviewModal.tsx         # shared approve/reject modal (implemented)
+    StatusBadge.tsx         # colored pill for needs_review/confirmed/rejected (implemented)
+    SeverityBadge.tsx       # colored pill for low/medium/high/critical (implemented)
+  lib/
+    api.ts                  # typed fetch helpers (getAssets, getObligations, getRisks, reviewObligation, reviewRisk, ingestDocument, getCurrentUser)
+    types.ts                # TypeScript types (Asset, Obligation, Risk, CurrentUser, ReviewPayload, PaginatedResponse)
+  proxy.ts                  # clerkMiddleware() — Next.js 16 edge middleware
+```
+
+### Frontend env vars (`frontend/.env.local`)
+```
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
+CLERK_SECRET_KEY=sk_...
+NEXT_PUBLIC_API_URL=http://localhost:8000   # optional, defaults to localhost:8000
 ```
