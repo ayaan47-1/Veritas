@@ -1,4 +1,4 @@
-import type { Asset, CurrentUser, Obligation, PaginatedResponse, ReviewPayload, Risk } from "@/lib/types";
+import type { Asset, CurrentUser, DocumentSummary, Obligation, PaginatedResponse, ReviewPayload, Risk } from "@/lib/types";
 
 type GetTokenFn = () => Promise<string | null>;
 
@@ -55,6 +55,32 @@ export async function getCurrentUser(getToken: GetTokenFn): Promise<CurrentUser>
 
 export async function getAssets(getToken: GetTokenFn): Promise<PaginatedResponse<Asset>> {
   return apiFetch<PaginatedResponse<Asset>>("/assets", getToken);
+}
+
+export async function getAssetDocuments(
+  getToken: GetTokenFn,
+  params: {
+    assetId: string;
+    docType?: string;
+    parseStatus?: string;
+    limit?: number;
+    cursor?: string | number;
+  },
+): Promise<PaginatedResponse<DocumentSummary>> {
+  const query = new URLSearchParams({
+    limit: String(params.limit ?? 20),
+    cursor: String(params.cursor ?? 0),
+  });
+  if (params.docType) {
+    query.set("doc_type", params.docType);
+  }
+  if (params.parseStatus) {
+    query.set("parse_status", params.parseStatus);
+  }
+  return apiFetch<PaginatedResponse<DocumentSummary>>(
+    `/assets/${params.assetId}/documents?${query.toString()}`,
+    getToken,
+  );
 }
 
 export async function getObligations(
@@ -115,4 +141,42 @@ export async function reviewRisk(
     getToken,
     { method: "POST", body: JSON.stringify(payload) },
   );
+}
+
+export async function ingestDocument(
+  getToken: GetTokenFn,
+  payload: { assetId: string; uploadedBy: string; file: File },
+): Promise<{ document_id: string }> {
+  const token = await getToken();
+  if (!token) {
+    throw new ApiError("Missing auth token", 401);
+  }
+
+  const formData = new FormData();
+  formData.set("asset_id", payload.assetId);
+  formData.set("uploaded_by", payload.uploadedBy);
+  formData.set("file", payload.file);
+
+  const response = await fetch(`${API_BASE}/ingest`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body.detail) {
+        detail = body.detail;
+      }
+    } catch {
+      // noop
+    }
+    throw new ApiError(detail, response.status);
+  }
+
+  return (await response.json()) as { document_id: string };
 }

@@ -60,6 +60,18 @@ export type CurrentUser = {
   last_login_at: string | null;
 };
 
+export type DocumentSummary = {
+  id: string;
+  asset_id: string;
+  source_name: string;
+  doc_type: string;
+  parse_status: string;
+  uploaded_by: string;
+  uploaded_at: string | null;
+  total_pages: number | null;
+  scanned_page_count: number;
+};
+
 export type ReviewPayload = {
   decision: ReviewDecision;
   reviewer_id: string;

@@ -91,6 +91,12 @@ export default function Home() {
 
                 <div className="mt-5 flex gap-2">
                   <Link
+                    href={`/assets/${asset.id}/documents`}
+                    className="rounded-full border border-cyan-700 px-3 py-1.5 text-xs font-semibold text-cyan-800"
+                  >
+                    Documents
+                  </Link>
+                  <Link
                     href={`/obligations?asset_id=${asset.id}`}
                     className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
                   >
