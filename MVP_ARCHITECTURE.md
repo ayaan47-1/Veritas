@@ -3,15 +3,16 @@
 **VeritasLayer — Authoritative Implementation Reference**
 **Status:** Locked for MVP. This is the single source of truth for implementation.
 
-**Implementation progress (as of 2026-03-15):**
-- ✅ Stages 1–11: fully implemented and unit-tested (54 tests passing)
+**Implementation progress (as of 2026-03-18):**
+- ✅ Stages 1–11: fully implemented and unit-tested (60 tests passing)
 - ✅ DB schema: all 22 tables, migrations applied (head: `e1f2a3b4c5d6`)
 - ✅ LLM wired: `services/llm.py` (LiteLLM), primary `claude-sonnet-4-6`
 - ✅ All API routers: obligations, risks, entities, summaries, assets, users, notifications, config, ingest, documents
 - ✅ Auth: Clerk JWT verification (`backend/app/auth/clerk.py`), user upsert on first login
 - ✅ Frontend: Next.js 16 scaffolded (`frontend/`), `@clerk/nextjs` wired, Clerk sign-in live
 - ✅ Postgres running (Docker), migrations applied
-- 🔲 Frontend review UI (obligations, risks, ingest)
+- ✅ Frontend P0 + core P1: asset list, obligations, risks, review modal, asset documents, document detail
+- 🔲 Frontend remaining P1: evidence viewer (`/obligations/[id]`)
 - 🔲 Celery Beat schedules, prompt registry
 
 ---
@@ -1033,6 +1034,13 @@ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/obligations?asset_id
 | 8 | Notifications | (bell dropdown) | **P2** | Notification list, mark as read |
 | 9 | Admin: Users | `/admin/users` | **P2** | User table, role assignment, asset assignment |
 | 10 | Admin: Config | `/admin/config` | **P2** | Key-value editor for config_overrides |
+
+**Current implementation status (2026-03-18):**
+- ✅ `/`, `/obligations`, `/risks`
+- ✅ `/assets/[id]/documents` (upload + filters + pagination)
+- ✅ `/documents/[id]` (status polling every 3s, obligations/risks tabs, inline review)
+- 🔲 `/obligations/[id]` evidence viewer
+- 🔲 P2 admin/notifications screens
 
 ### 6.2 API Shapes (key endpoints)
 

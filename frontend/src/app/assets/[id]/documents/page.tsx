@@ -174,18 +174,31 @@ export default function AssetDocumentsPage() {
                   <th className="px-4 py-3">Parse Status</th>
                   <th className="px-4 py-3">Uploaded At</th>
                   <th className="px-4 py-3">Pages</th>
+                  <th className="px-4 py-3">Open</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((document) => (
                   <tr key={document.id} className="border-t border-slate-100">
-                    <td className="px-4 py-3 font-medium text-slate-900">{document.source_name}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">
+                      <Link href={`/documents/${document.id}`} className="underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700">
+                        {document.source_name}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3 text-slate-600">{document.doc_type}</td>
                     <td className="px-4 py-3 text-slate-600">{document.parse_status}</td>
                     <td className="px-4 py-3 text-slate-600">
                       {document.uploaded_at ? document.uploaded_at.replace("T", " ").slice(0, 19) : "—"}
                     </td>
                     <td className="px-4 py-3 text-slate-600">{document.total_pages ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/documents/${document.id}`}
+                        className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                      >
+                        View
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>

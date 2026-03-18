@@ -1,4 +1,14 @@
-import type { Asset, CurrentUser, DocumentSummary, Obligation, PaginatedResponse, ReviewPayload, Risk } from "@/lib/types";
+import type {
+  Asset,
+  CurrentUser,
+  DocumentDetail,
+  DocumentStatus,
+  DocumentSummary,
+  Obligation,
+  PaginatedResponse,
+  ReviewPayload,
+  Risk,
+} from "@/lib/types";
 
 type GetTokenFn = () => Promise<string | null>;
 
@@ -83,15 +93,34 @@ export async function getAssetDocuments(
   );
 }
 
+export async function getDocument(getToken: GetTokenFn, documentId: string): Promise<DocumentDetail> {
+  return apiFetch<DocumentDetail>(`/documents/${documentId}`, getToken);
+}
+
+export async function getDocumentStatus(getToken: GetTokenFn, documentId: string): Promise<DocumentStatus> {
+  return apiFetch<DocumentStatus>(`/documents/${documentId}/status`, getToken);
+}
+
 export async function getObligations(
   getToken: GetTokenFn,
-  params: { assetId: string; status?: string; severity?: string; limit?: number; cursor?: string | number },
+  params: {
+    assetId?: string;
+    documentId?: string;
+    status?: string;
+    severity?: string;
+    limit?: number;
+    cursor?: string | number;
+  },
 ): Promise<PaginatedResponse<Obligation>> {
-  const query = new URLSearchParams({
-    asset_id: params.assetId,
-    limit: String(params.limit ?? 20),
-    cursor: String(params.cursor ?? 0),
-  });
+  const query = new URLSearchParams();
+  if (params.assetId) {
+    query.set("asset_id", params.assetId);
+  }
+  if (params.documentId) {
+    query.set("document_id", params.documentId);
+  }
+  query.set("limit", String(params.limit ?? 20));
+  query.set("cursor", String(params.cursor ?? 0));
   if (params.status) {
     query.set("status", params.status);
   }
@@ -103,13 +132,24 @@ export async function getObligations(
 
 export async function getRisks(
   getToken: GetTokenFn,
-  params: { assetId: string; status?: string; severity?: string; limit?: number; cursor?: string | number },
+  params: {
+    assetId?: string;
+    documentId?: string;
+    status?: string;
+    severity?: string;
+    limit?: number;
+    cursor?: string | number;
+  },
 ): Promise<PaginatedResponse<Risk>> {
-  const query = new URLSearchParams({
-    asset_id: params.assetId,
-    limit: String(params.limit ?? 20),
-    cursor: String(params.cursor ?? 0),
-  });
+  const query = new URLSearchParams();
+  if (params.assetId) {
+    query.set("asset_id", params.assetId);
+  }
+  if (params.documentId) {
+    query.set("document_id", params.documentId);
+  }
+  query.set("limit", String(params.limit ?? 20));
+  query.set("cursor", String(params.cursor ?? 0));
   if (params.status) {
     query.set("status", params.status);
   }

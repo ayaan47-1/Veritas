@@ -72,6 +72,26 @@ export type DocumentSummary = {
   scanned_page_count: number;
 };
 
+export type DocumentDetail = {
+  id: string;
+  asset_id: string;
+  source_name: string;
+  mime_type: string;
+  uploaded_at: string | null;
+  doc_type: string;
+  parse_status: string;
+  total_pages: number | null;
+  scanned_page_count: number;
+};
+
+export type DocumentStatus = {
+  document_id: string;
+  parse_status: string;
+  total_pages: number | null;
+  pages_processed: number;
+  pages_failed: number;
+};
+
 export type ReviewPayload = {
   decision: ReviewDecision;
   reviewer_id: string;

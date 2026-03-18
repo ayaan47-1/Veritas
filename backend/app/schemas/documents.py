@@ -37,3 +37,26 @@ class DocumentStatus(BaseModel):
     pages_processed: int
     pages_failed: int
 
+
+class TextSpanOut(BaseModel):
+    id: UUID
+    char_start: int
+    char_end: int
+    bbox_x1: float
+    bbox_y1: float
+    bbox_x2: float
+    bbox_y2: float
+    span_text: str
+
+    model_config = {"from_attributes": True}
+
+
+class DocumentPageOut(BaseModel):
+    document_id: UUID
+    page_number: int
+    raw_text: str
+    normalized_text: str
+    text_source: str
+    processing_status: str
+    processing_error: Optional[str] = None
+    text_spans: list[TextSpanOut]

@@ -161,9 +161,17 @@ Latest validation snapshot (2026-03-15):
 
 ## Implementation Status
 
-All 11 pipeline stages implemented. All API routers implemented. Clerk JWT auth live. Next.js frontend scaffolded with Clerk. Postgres running with migrations applied. Current baseline: **54 passing tests**.
+All 11 pipeline stages implemented. All API routers implemented. Clerk JWT auth live. Next.js frontend scaffolded with Clerk. Postgres running with migrations applied. Current baseline: **60 passing tests**.
 
-**Next:** Frontend review UI — obligations list, risks list, review modal, asset list.
+Implemented frontend screens:
+- Asset list (`/`)
+- Obligations table (`/obligations`)
+- Risks table (`/risks`)
+- Asset document list + upload (`/assets/[id]/documents`)
+- Document detail with status polling + tabs (`/documents/[id]`)
+- Shared review modal + status/severity badges
+
+**Next:** P1 evidence viewer (`/obligations/[id]`), then P2 screens (notifications/admin).
 
 ## Frontend Implementation (for Codex)
 
@@ -189,11 +197,14 @@ For server components, use `auth()` from `@clerk/nextjs/server` instead.
 ### Current user
 `GET /users/me` returns `{ id, email, name, role }`. Cache this — `id` is required as `reviewer_id` when submitting reviews.
 
-### Build order (P0 first)
-1. `src/app/page.tsx` — Asset list (`GET /assets`). Cards showing asset name + pending obligation count.
-2. `src/app/obligations/page.tsx` — Obligations table (`GET /obligations?asset_id=...`). Columns: text, type, severity, status, due date. Inline approve/reject buttons.
-3. `src/app/risks/page.tsx` — Risks table (`GET /risks?asset_id=...`). Same pattern.
-4. Review modal (shared component) — `POST /obligations/{id}/review` or `POST /risks/{id}/review`. Fields: decision (approve/reject/edit_approve), reviewer_confidence (0–100 slider), reason (textarea).
+### Build order (current)
+1. ✅ `src/app/page.tsx` — Asset list (`GET /assets`). Cards showing asset name + pending obligation count.
+2. ✅ `src/app/obligations/page.tsx` — Obligations table (`GET /obligations?asset_id=...`). Columns: text, type, severity, status, due date. Inline approve/reject buttons.
+3. ✅ `src/app/risks/page.tsx` — Risks table (`GET /risks?asset_id=...`). Same pattern.
+4. ✅ Review modal (shared component) — `POST /obligations/{id}/review` or `POST /risks/{id}/review`. Fields: decision (approve/reject/edit_approve), reviewer_confidence (0–100 slider), reason (textarea).
+5. ✅ `src/app/assets/[id]/documents/page.tsx` — Document list + upload dropzone.
+6. ✅ `src/app/documents/[id]/page.tsx` — Document detail with status polling and obligations/risks tabs.
+7. 🔲 `src/app/obligations/[id]/page.tsx` — Evidence viewer.
 
 ### Key API shapes
 See `MVP_ARCHITECTURE.md §6.2` for full request/response shapes.
@@ -215,13 +226,15 @@ frontend/src/
       page.tsx              # → risks table
     assets/[id]/documents/
       page.tsx              # → document list + upload dropzone
+    documents/[id]/
+      page.tsx              # → document detail (status polling + obligations/risks tabs)
   components/
     ReviewModal.tsx         # shared approve/reject modal (implemented)
     StatusBadge.tsx         # colored pill for needs_review/confirmed/rejected (implemented)
     SeverityBadge.tsx       # colored pill for low/medium/high/critical (implemented)
   lib/
-    api.ts                  # typed fetch helpers (getAssets, getObligations, getRisks, reviewObligation, reviewRisk, ingestDocument, getCurrentUser)
-    types.ts                # TypeScript types (Asset, Obligation, Risk, CurrentUser, ReviewPayload, PaginatedResponse)
+    api.ts                  # typed fetch helpers (assets, documents, obligations, risks, reviews, ingest, current user)
+    types.ts                # TypeScript types (asset/document/obligation/risk/user/review payloads)
   proxy.ts                  # clerkMiddleware() — Next.js 16 edge middleware
 ```
 
