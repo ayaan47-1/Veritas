@@ -22,7 +22,6 @@ from ...models import (
     Severity,
 )
 from ...services.normalization import normalize_text
-from ..celery_app import celery_app
 from ._helpers import update_parse_status
 
 
@@ -260,7 +259,6 @@ def _detect_contradictions(
     db.commit()
 
 
-@celery_app.task(name="verify_extractions")
 def verify_extractions(document_id: str) -> None:
     update_parse_status(document_id, ParseStatus.verification)
 

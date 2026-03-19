@@ -19,7 +19,6 @@ from ...models import (
     ParseStatus,
     PromptVersion,
 )
-from ..celery_app import celery_app
 from ._helpers import update_parse_status
 
 
@@ -147,7 +146,6 @@ def _run_with_retries(prompt: str, llm_cfg: dict) -> tuple[str | None, dict | No
     return None, None, last_error
 
 
-@celery_app.task(name="classify_document")
 def classify_document(document_id: str) -> None:
     update_parse_status(document_id, ParseStatus.classification)
 

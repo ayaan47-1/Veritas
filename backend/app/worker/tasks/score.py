@@ -21,7 +21,6 @@ from ...models import (
     RiskEvidence,
     TextSource,
 )
-from ..celery_app import celery_app
 from ._helpers import update_parse_status
 
 
@@ -144,7 +143,6 @@ def _score_risk(
     risk.status = ReviewStatus.needs_review if risk.system_confidence >= 50 else ReviewStatus.rejected
 
 
-@celery_app.task(name="score_extractions")
 def score_extractions(document_id: str) -> None:
     update_parse_status(document_id, ParseStatus.scoring)
 

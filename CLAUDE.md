@@ -13,7 +13,7 @@ VeritasLayer is an AI Operational Intelligence Layer that ingests PDFs, runs a d
 ## Tech Stack
 
 - **Backend:** Python 3.11+, FastAPI, SQLAlchemy (mapped_column style), Alembic
-- **Task Queue:** Celery + Redis
+- **Job Orchestration:** Inngest (durable step functions, replaces Celery + Redis)
 - **Database:** Postgres (no pgvector in MVP)
 - **PDF Parsing:** PyMuPDF (`fitz`)
 - **OCR:** OLMOCR via DeepInfra (scanned pages only)
@@ -27,7 +27,7 @@ VeritasLayer is an AI Operational Intelligence Layer that ingests PDFs, runs a d
 # Install
 pip install -r backend/requirements.txt
 
-# Run tests (Celery not required — stubbed automatically)
+# Run tests
 python3 -m pytest -q backend/tests
 python3 -m pytest backend/tests/test_pipeline_tasks.py::test_parse_document_parses_pdf_pages_and_counts_scanned -v
 
@@ -41,7 +41,7 @@ python3 -m alembic -c backend/alembic.ini heads   # current head: e1f2a3b4c5d6
 
 # Dev services
 uvicorn backend.app.main:app --reload
-celery -A backend.app.worker worker --loglevel=info
+npx inngest-cli@latest dev -u http://localhost:8000/api/inngest  # job dashboard at localhost:8288
 ```
 
 ## Configuration
@@ -64,7 +64,7 @@ Clerk auth env vars: `CLERK_JWKS_URL` (e.g. `https://<domain>.clerk.accounts.dev
 
 ### Pipeline (11 stages, `backend/app/worker/`)
 
-Orchestrated synchronously in `pipeline.py → process_document`. Each stage calls `update_parse_status()` from `tasks/_helpers.py`, which guards against overwriting a `failed` status.
+Orchestrated via Inngest durable step functions in `pipeline.py → process_document`. Each of the 11 stages is a separate `step.run()` call — if a stage fails, Inngest retries from that step, not the beginning. Each stage calls `update_parse_status()` from `tasks/_helpers.py`, which guards against overwriting a `failed` status. Dashboard at `localhost:8288` (dev) shows every run and step.
 
 | Stage | Task function | Status | File |
 |---|---|---|---|
@@ -117,14 +117,7 @@ All enums are in `models/enums.py`.
 
 ## Testing Patterns
 
-Celery is **not installed** in the test environment. Tests that import worker tasks must stub it before importing:
-
-```python
-if "celery" not in sys.modules:
-    celery_module = types.ModuleType("celery")
-    # ... (see test_pipeline_tasks.py for full stub)
-    sys.modules["celery"] = celery_module
-```
+Pipeline task functions are plain Python functions (no Celery decorators). Inngest orchestration is at the pipeline level only — individual task tests don't need to mock Inngest.
 
 Pipeline task tests use `FakeSession` + `FakeQuery` (defined in `test_pipeline_tasks.py`, `test_classification_task.py`, `test_extraction_tasks.py`, `test_verify_task.py`, `test_score_task.py`, and `test_notify_task.py`) and inject via `monkeypatch.setattr(task_module, "SessionLocal", lambda: fake_db)`. Tasks import `SessionLocal` at module scope, so monkeypatching the module-level name works.
 
@@ -132,11 +125,11 @@ Service-layer tests (`test_chunking.py`, `test_normalization.py`) have no mockin
 
 `test_llm_service.py` tests `services/llm.py` directly: pure parsing tests need no mocks; integration tests patch `backend.app.services.llm.litellm` (the module-level import) to inject a fake `litellm.completion` return value.
 
-Expected baseline: **54 tests, all passing**.
+Expected baseline: **60 tests, all passing**.
 
 Latest validation snapshot (2026-03-15):
 - `python3 -m pytest -q backend/tests/test_llm_service.py` → `15 passed`
-- `python3 -m pytest -q backend/tests` → `54 passed`
+- `python3 -m pytest -q backend/tests` → `60 passed`
 
 ## Non-Negotiable Rules
 

@@ -8,11 +8,9 @@ from ...config import settings
 from ...database import SessionLocal
 from ...models import Document, DocumentPage, PageProcessingStatus, ParseStatus, TextSource
 from ...services.ocr import OCRUnavailableError, ocr_pdf_page
-from ..celery_app import celery_app
 from ._helpers import update_parse_status
 
 
-@celery_app.task(name="ocr_scanned_pages")
 def ocr_scanned_pages(document_id: str) -> None:
     update_parse_status(document_id, ParseStatus.ocr)
 

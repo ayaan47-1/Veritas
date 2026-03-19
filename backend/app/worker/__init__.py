@@ -1,4 +1,3 @@
-from .celery_app import celery_app
+from .inngest_client import inngest_client
 
-__all__ = ["celery_app"]
-
+__all__ = ["inngest_client"]

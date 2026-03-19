@@ -19,18 +19,10 @@ ingest:
 chunking:
   max_chars: 4000
 
-celery:
-  queues:
-    default: "default"
-    llm: "llm"
-    ocr: "ocr"
-  concurrency:
-    default: 4
-    llm: 2
-    ocr: 2
-  rate_limits:
-    llm: "10/m"
-    ocr: "20/m"
+inngest:
+  # Dev server: npx inngest-cli@latest dev -u http://localhost:8000/api/inngest
+  # Self-hosted prod: docker run -p 8288:8288 inngest/inngest
+  retries: 2
 
 llm:
   primary_model: "claude-sonnet-4-6"

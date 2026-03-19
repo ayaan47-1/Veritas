@@ -29,7 +29,6 @@ from ...models import (
     RiskType,
     Severity,
 )
-from ..celery_app import celery_app
 from ._helpers import update_parse_status
 
 
@@ -436,7 +435,6 @@ def _run_extraction_stage(
         db.close()
 
 
-@celery_app.task(name="extract_entities")
 def extract_entities(document_id: str) -> None:
     _run_extraction_stage(
         document_id=document_id,
@@ -446,7 +444,6 @@ def extract_entities(document_id: str) -> None:
     )
 
 
-@celery_app.task(name="extract_obligations")
 def extract_obligations(document_id: str) -> None:
     _run_extraction_stage(
         document_id=document_id,
@@ -456,7 +453,6 @@ def extract_obligations(document_id: str) -> None:
     )
 
 
-@celery_app.task(name="extract_risks")
 def extract_risks(document_id: str) -> None:
     _run_extraction_stage(
         document_id=document_id,

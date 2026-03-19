@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 
 from ...database import SessionLocal
 from ...models import Chunk, Document, DocumentPage, PageProcessingStatus, ParseStatus, TextSource, TextSpan
-from ..celery_app import celery_app
 from ._helpers import update_parse_status
 
 
@@ -88,7 +87,6 @@ def _persist_failed_page(db: Session, document_id: uuid.UUID, page_number: int, 
     db.commit()
 
 
-@celery_app.task(name="parse_document")
 def parse_document(document_id: str) -> None:
     update_parse_status(document_id, ParseStatus.parsing)
 

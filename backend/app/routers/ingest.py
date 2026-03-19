@@ -9,12 +9,14 @@ import fitz
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
+import inngest
+
 from ..config import settings
 from ..database import get_db
 from ..models import Document, ParseStatus
 from ..schemas.ingest import IngestResponse
 from ..services.storage import LocalStorage
-from ..worker.pipeline import process_document
+from ..worker.inngest_client import inngest_client
 
 router = APIRouter(prefix="", tags=["ingest"])
 
@@ -80,7 +82,12 @@ async def ingest_document(
     db.add(document)
     db.commit()
 
-    process_document.delay(str(document_id))
+    await inngest_client.send(
+        inngest.Event(
+            name="veritas/document.uploaded",
+            data={"document_id": str(document_id)},
+        )
+    )
 
     return IngestResponse(document_id=document_id)
 

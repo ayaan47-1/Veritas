@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import inngest.fast_api
 
 from .config import settings
 from .routers import assets as assets_router
@@ -44,6 +45,11 @@ def create_app() -> FastAPI:
     app.include_router(users_router)
     app.include_router(notifications_router)
     app.include_router(config_router)
+
+    from .worker.inngest_client import inngest_client
+    from .worker.pipeline import process_document
+
+    inngest.fast_api.serve(app, inngest_client, [process_document])
 
     return app
 

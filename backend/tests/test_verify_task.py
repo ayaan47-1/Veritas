@@ -6,25 +6,6 @@ import types
 import uuid
 
 
-if "celery" not in sys.modules:
-    celery_module = types.ModuleType("celery")
-
-    class _DummyCelery:
-        def __init__(self, *args, **kwargs):
-            self.conf = {}
-
-        def autodiscover_tasks(self, *args, **kwargs) -> None:
-            return None
-
-        def task(self, *args, **kwargs):
-            def _decorator(func):
-                return func
-
-            return _decorator
-
-    celery_module.Celery = _DummyCelery
-    sys.modules["celery"] = celery_module
-
 
 from backend.app.models import (
     Document,

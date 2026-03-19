@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 
-from ..celery_app import celery_app
 from ...config import settings
 from ...database import SessionLocal
 from ...models import (
@@ -21,7 +20,6 @@ from ...models import (
 )
 
 
-@celery_app.task(name="persist_final_status")
 def persist_final_status(document_id: str) -> None:
     db = SessionLocal()
     try:
@@ -50,7 +48,6 @@ def persist_final_status(document_id: str) -> None:
         db.close()
 
 
-@celery_app.task(name="emit_notifications")
 def emit_notifications(document_id: str) -> None:
     db = SessionLocal()
     try:

@@ -9,7 +9,6 @@ from ...database import SessionLocal
 from ...models import Chunk, Document, DocumentPage, PageProcessingStatus, ParseStatus, SplitReason
 from ...services.chunking import split_text_into_chunks
 from ...services.normalization import normalize_text
-from ..celery_app import celery_app
 from ._helpers import update_parse_status
 
 
@@ -17,7 +16,6 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-@celery_app.task(name="normalize_pages")
 def normalize_pages(document_id: str) -> None:
     update_parse_status(document_id, ParseStatus.chunking)
 
@@ -58,7 +56,6 @@ def normalize_pages(document_id: str) -> None:
         db.close()
 
 
-@celery_app.task(name="chunk_pages")
 def chunk_pages(document_id: str) -> None:
     update_parse_status(document_id, ParseStatus.chunking)
 
