@@ -147,6 +147,14 @@ export type UserNotification = {
   event: NotificationEvent | null;
 };
 
+export type User = CurrentUser;
+
+export type UserAssetAssignment = {
+  id: string;
+  user_id: string;
+  asset_id: string;
+};
+
 export type ReviewPayload = {
   decision: ReviewDecision;
   reviewer_id: string;

@@ -5,6 +5,8 @@ import type {
   DocumentPage,
   DocumentStatus,
   DocumentSummary,
+  User,
+  UserAssetAssignment,
   UserNotification,
   ObligationDetail,
   Obligation,
@@ -256,5 +258,45 @@ export async function markNotificationRead(
   const query = new URLSearchParams({ user_id: userId });
   return apiFetch<UserNotification>(`/notifications/${notificationId}/read?${query.toString()}`, getToken, {
     method: "PUT",
+  });
+}
+
+export async function getUsers(getToken: GetTokenFn): Promise<PaginatedResponse<User>> {
+  return apiFetch<PaginatedResponse<User>>("/users", getToken);
+}
+
+export async function getUserAssets(getToken: GetTokenFn, userId: string): Promise<UserAssetAssignment[]> {
+  return apiFetch<UserAssetAssignment[]>(`/users/${userId}/assets`, getToken);
+}
+
+export async function updateUserRole(
+  getToken: GetTokenFn,
+  userId: string,
+  role: User["role"],
+): Promise<User> {
+  return apiFetch<User>(`/users/${userId}/role`, getToken, {
+    method: "PUT",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export async function assignUserAsset(
+  getToken: GetTokenFn,
+  userId: string,
+  assetId: string,
+): Promise<UserAssetAssignment> {
+  return apiFetch<UserAssetAssignment>(`/users/${userId}/assets`, getToken, {
+    method: "POST",
+    body: JSON.stringify({ asset_id: assetId }),
+  });
+}
+
+export async function removeUserAsset(
+  getToken: GetTokenFn,
+  userId: string,
+  assetId: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/users/${userId}/assets/${assetId}`, getToken, {
+    method: "DELETE",
   });
 }

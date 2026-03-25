@@ -72,6 +72,12 @@ def update_user_role(user_id: UUID, payload: UserRoleUpdateIn, db: Session = Dep
     return _serialize_user(user)
 
 
+@router.get("/{user_id}/assets", dependencies=[Depends(require_admin)])
+def get_user_assets(user_id: UUID, db: Session = Depends(get_db)):
+    assignments = db.query(UserAssetAssignment).filter(UserAssetAssignment.user_id == user_id).all()
+    return [{"id": str(a.id), "user_id": str(a.user_id), "asset_id": str(a.asset_id)} for a in assignments]
+
+
 @router.post("/{user_id}/assets", dependencies=[Depends(require_admin)])
 def assign_user_asset(user_id: UUID, payload: UserAssetAssignIn, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()

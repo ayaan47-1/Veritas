@@ -34,6 +34,9 @@ export default function RootLayout({
                   <Link href="/risks" className="rounded-full px-3 py-1 hover:bg-slate-100">
                     Risks
                   </Link>
+                  <Link href="/admin/users" className="rounded-full px-3 py-1 hover:bg-slate-100">
+                    Admin
+                  </Link>
                 </nav>
               </div>
 
