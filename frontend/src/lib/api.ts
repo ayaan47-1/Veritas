@@ -1,5 +1,6 @@
 import type {
   Asset,
+  ConfigResponse,
   CurrentUser,
   DocumentDetail,
   DocumentPage,
@@ -288,6 +289,31 @@ export async function assignUserAsset(
   return apiFetch<UserAssetAssignment>(`/users/${userId}/assets`, getToken, {
     method: "POST",
     body: JSON.stringify({ asset_id: assetId }),
+  });
+}
+
+export async function getConfig(getToken: GetTokenFn): Promise<ConfigResponse> {
+  return apiFetch<ConfigResponse>("/config", getToken);
+}
+
+export async function upsertConfigOverride(
+  getToken: GetTokenFn,
+  key: string,
+  value: Record<string, unknown>,
+  updatedBy: string,
+): Promise<{ key: string; value: unknown; updated_by: string }> {
+  return apiFetch(`/config/${encodeURIComponent(key)}`, getToken, {
+    method: "PUT",
+    body: JSON.stringify({ value, updated_by: updatedBy }),
+  });
+}
+
+export async function deleteConfigOverride(
+  getToken: GetTokenFn,
+  key: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/config/${encodeURIComponent(key)}`, getToken, {
+    method: "DELETE",
   });
 }
 

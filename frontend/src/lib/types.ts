@@ -147,6 +147,12 @@ export type UserNotification = {
   event: NotificationEvent | null;
 };
 
+export type ConfigResponse = {
+  base: Record<string, unknown>;
+  overrides: Record<string, unknown>;
+  effective: Record<string, unknown>;
+};
+
 export type User = CurrentUser;
 
 export type UserAssetAssignment = {
