@@ -25,6 +25,8 @@ from ._helpers import update_parse_status
 
 
 _DEADLINE_RE = re.compile(r"\b(by|before|within|no later than|after|days?|weeks?|months?)\b", re.IGNORECASE)
+_STATUTE_RE = re.compile(r"(§|C\.R\.S\.|U\.S\.C\.|statute|regulation)", re.IGNORECASE)
+_MONETARY_RE = re.compile(r"(\$[\d,]+|dollar)", re.IGNORECASE)
 
 
 def _clamp_score(score: int) -> int:
@@ -39,6 +41,13 @@ def _score_config() -> tuple[dict[str, int], dict[str, int]]:
         "responsible_party_linked": 10,
         "doc_type_aligned": 10,
         "verifier_pass": 15,
+        "statute_reference": 10,
+        "monetary_amount": 5,
+        "explicit_deadline": 5,
+        "cross_obligation_linked": 5,
+        "external_reference": 5,
+        "obligation_statute_reference": 5,
+        "obligation_monetary_amount": 5,
     }
     defaults_penalties = {
         "weak_modality": -25,
@@ -98,6 +107,10 @@ def _score_obligation(
         score += weights["doc_type_aligned"]
 
     score += weights["verifier_pass"]
+    if _STATUTE_RE.search(obligation.obligation_text or ""):
+        score += weights["obligation_statute_reference"]
+    if _MONETARY_RE.search(obligation.obligation_text or ""):
+        score += weights["obligation_monetary_amount"]
 
     if obligation.modality in (Modality.should, Modality.may):
         score += penalties["weak_modality"]
@@ -132,6 +145,16 @@ def _score_risk(
     score = 0
     score += weights["quote_verified"]
     score += weights["verifier_pass"]
+    if _STATUTE_RE.search(risk.risk_text or ""):
+        score += weights["statute_reference"]
+    if _MONETARY_RE.search(risk.risk_text or ""):
+        score += weights["monetary_amount"]
+    if _implies_deadline(risk.risk_text or ""):
+        score += weights["explicit_deadline"]
+    if risk.contradiction_flag or getattr(risk, "obligation_id", None) is not None:
+        score += weights["cross_obligation_linked"]
+    if risk.has_external_reference:
+        score += weights["external_reference"]
 
     if any(ev.source == TextSource.ocr for ev in evidence):
         score += penalties["ocr_source"]
@@ -193,4 +216,3 @@ def score_extractions(document_id: str) -> None:
         db.commit()
     finally:
         db.close()
-

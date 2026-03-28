@@ -115,22 +115,21 @@ export default function ObligationEvidencePage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-10">
+    <main className="min-h-screen bg-bg px-6 py-10">
       <div className="mx-auto max-w-7xl">
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">P1 Screen</p>
-            <h1 className="text-2xl font-semibold text-slate-900">Obligation Evidence Viewer</h1>
-            <p className="text-sm text-slate-600">Obligation ID: {obligationId}</p>
+            <h1 className="font-serif text-2xl text-text-primary">Obligation Evidence</h1>
+            <p className="mt-1 font-mono text-xs text-text-tertiary">{obligationId}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href="/obligations" className="rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700">
+            <Link href="/obligations" className="rounded-full border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary">
               Back to Obligations
             </Link>
             {obligation ? (
               <Link
                 href={`/documents/${obligation.document_id}`}
-                className="rounded-full bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white"
+                className="rounded-full bg-brand px-3 py-1.5 text-sm font-medium text-bg"
               >
                 Open Document
               </Link>
@@ -138,32 +137,39 @@ export default function ObligationEvidencePage() {
           </div>
         </header>
 
-        {isLoading ? <p className="text-sm text-slate-600">Loading obligation evidence...</p> : null}
-        {error ? <p className="mb-4 rounded-xl bg-rose-100 px-4 py-3 text-sm font-medium text-rose-700">{error}</p> : null}
+        {isLoading ? <p className="text-sm text-text-secondary">Loading obligation evidence...</p> : null}
+        {error ? (
+          <p className="mb-4 rounded-xl bg-danger-subtle px-4 py-3 text-sm font-medium text-danger">{error}</p>
+        ) : null}
 
         {!isLoading && !error && obligation ? (
           <div className="grid gap-5 lg:grid-cols-[1.2fr_1fr]">
             <section className="space-y-4">
-              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Obligation</p>
-                <h2 className="mt-2 text-lg font-semibold text-slate-900">{obligation.obligation_text}</h2>
+              <article className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <h2 className="font-serif text-lg leading-relaxed text-text-primary">{obligation.obligation_text}</h2>
+                </div>
                 <div className="mt-4 flex flex-wrap items-center gap-2">
                   <SeverityBadge severity={obligation.severity} />
                   <StatusBadge status={obligation.status} />
-                  <span className="rounded-full border border-slate-300 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                  <span
+                    style={{ background: "var(--bg-subtle)", color: "var(--text-secondary)", borderColor: "var(--border)" }}
+                    className="rounded-full border px-2 py-0.5 text-xs font-medium"
+                  >
                     Confidence: {obligation.system_confidence}
                   </span>
                 </div>
               </article>
 
-              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <article className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
-                  <p className="text-sm font-semibold text-slate-900">Evidence ({obligation.evidence.length})</p>
+                  <p className="text-sm font-medium text-text-primary">Evidence ({obligation.evidence.length})</p>
                   <a
                     href={`${API_BASE}/documents/${obligation.document_id}/pdf?processed=true`}
                     target="_blank"
                     rel="noreferrer"
-                    className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                    style={{ background: "var(--info-subtle)", color: "var(--info)", borderColor: "var(--info)" }}
+                    className="rounded-full border px-3 py-1.5 text-xs font-medium"
                   >
                     Open PDF
                   </a>
@@ -178,17 +184,17 @@ export default function ObligationEvidencePage() {
                       : null;
 
                     return (
-                      <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                          <span className="rounded-full bg-white px-2 py-0.5 font-semibold">Page {item.page_number}</span>
-                          <span className="rounded-full bg-white px-2 py-0.5 font-semibold">Source: {item.source}</span>
-                          <span className="rounded-full bg-white px-2 py-0.5 font-semibold">
-                            Raw chars: {item.raw_char_start}-{item.raw_char_end}
+                      <div key={item.id} className="rounded-xl border border-border bg-bg-subtle p-4">
+                        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+                          <span className="rounded-full border border-border bg-surface px-2 py-0.5 font-medium">Page {item.page_number}</span>
+                          <span className="rounded-full border border-border bg-surface px-2 py-0.5 font-medium">Source: {item.source}</span>
+                          <span className="rounded-full border border-border bg-surface px-2 py-0.5 font-mono">
+                            chars {item.raw_char_start}–{item.raw_char_end}
                           </span>
                         </div>
-                        <p className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-900">{item.quote}</p>
-                        <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Context</p>
-                        <p className="mt-1 text-sm text-slate-700">
+                        <p className="rounded-lg border border-border bg-surface p-3 font-mono text-sm text-text-primary">{item.quote}</p>
+                        <p className="mt-3 text-xs font-medium uppercase tracking-wider text-text-tertiary">Context</p>
+                        <p className="mt-1 text-sm leading-relaxed text-text-secondary">
                           {snippet ?? "Context unavailable for this evidence page."}
                         </p>
                       </div>
@@ -199,45 +205,46 @@ export default function ObligationEvidencePage() {
             </section>
 
             <aside className="space-y-4">
-              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="text-sm font-semibold text-slate-900">Item Details</p>
-                <dl className="mt-3 space-y-2 text-sm">
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-slate-500">Type</dt>
-                    <dd className="font-semibold text-slate-900">{obligation.obligation_type}</dd>
+              <article className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+                <p className="text-sm font-medium text-text-primary">Item Details</p>
+                <dl className="mt-3 space-y-0 divide-y divide-border text-sm">
+                  <div className="flex justify-between gap-3 py-2">
+                    <dt className="text-text-tertiary">Type</dt>
+                    <dd className="font-medium text-text-primary">{obligation.obligation_type}</dd>
                   </div>
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-slate-500">Modality</dt>
-                    <dd className="font-semibold text-slate-900">{obligation.modality}</dd>
+                  <div className="flex justify-between gap-3 py-2">
+                    <dt className="text-text-tertiary">Modality</dt>
+                    <dd className="font-medium text-text-primary">{obligation.modality}</dd>
                   </div>
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-slate-500">Due Kind</dt>
-                    <dd className="font-semibold text-slate-900">{obligation.due_kind}</dd>
+                  <div className="flex justify-between gap-3 py-2">
+                    <dt className="text-text-tertiary">Due Kind</dt>
+                    <dd className="font-medium text-text-primary">{obligation.due_kind}</dd>
                   </div>
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-slate-500">Due Date</dt>
-                    <dd className="font-semibold text-slate-900">{obligation.due_date ? obligation.due_date.slice(0, 10) : "—"}</dd>
+                  <div className="flex justify-between gap-3 py-2">
+                    <dt className="text-text-tertiary">Due Date</dt>
+                    <dd className="font-medium text-text-primary">{obligation.due_date ? obligation.due_date.slice(0, 10) : "—"}</dd>
                   </div>
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-slate-500">External Ref</dt>
-                    <dd className="font-semibold text-slate-900">{obligation.has_external_reference ? "Yes" : "No"}</dd>
+                  <div className="flex justify-between gap-3 py-2">
+                    <dt className="text-text-tertiary">External Ref</dt>
+                    <dd className="font-medium text-text-primary">{obligation.has_external_reference ? "Yes" : "No"}</dd>
                   </div>
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-slate-500">Contradiction</dt>
-                    <dd className="font-semibold text-slate-900">{obligation.contradiction_flag ? "Yes" : "No"}</dd>
+                  <div className="flex justify-between gap-3 py-2">
+                    <dt className="text-text-tertiary">Contradiction</dt>
+                    <dd className="font-medium text-text-primary">{obligation.contradiction_flag ? "Yes" : "No"}</dd>
                   </div>
                 </dl>
               </article>
 
-              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="text-sm font-semibold text-slate-900">Review Actions</p>
+              <article className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+                <p className="text-sm font-medium text-text-primary">Review Actions</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     onClick={() => {
                       setInitialDecision("approve");
                       setReviewOpen(true);
                     }}
-                    className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white"
+                    style={{ background: "var(--success-subtle)", color: "var(--success)", borderColor: "var(--success)" }}
+                    className="rounded-full border px-3 py-1.5 text-xs font-medium"
                   >
                     Approve
                   </button>
@@ -246,7 +253,8 @@ export default function ObligationEvidencePage() {
                       setInitialDecision("reject");
                       setReviewOpen(true);
                     }}
-                    className="rounded-full border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700"
+                    style={{ background: "var(--danger-subtle)", color: "var(--danger)", borderColor: "var(--danger)" }}
+                    className="rounded-full border px-3 py-1.5 text-xs font-medium"
                   >
                     Reject
                   </button>
@@ -261,6 +269,8 @@ export default function ObligationEvidencePage() {
         open={reviewOpen}
         title={obligation?.obligation_text ?? ""}
         initialDecision={initialDecision}
+        itemType="obligation"
+        initialValues={obligation ? { text: obligation.obligation_text, severity: obligation.severity } : undefined}
         onClose={() => setReviewOpen(false)}
         onSubmit={submitReview}
       />

@@ -5,7 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { getAssetDocuments, getCurrentUser, ingestDocument } from "@/lib/api";
+import { deleteDocument, getAssetDocuments, getCurrentUser, ingestDocument } from "@/lib/api";
 import type { CurrentUser, DocumentSummary } from "@/lib/types";
 
 const DOC_TYPES = ["all", "contract", "invoice", "inspection_report", "rfi", "change_order", "unknown"] as const;
@@ -23,6 +23,7 @@ export default function AssetDocumentsPage() {
   const [parseStatus, setParseStatus] = useState<string>("all");
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
@@ -88,54 +89,66 @@ export default function AssetDocumentsPage() {
     }
   }
 
+  async function handleDelete(documentId: string) {
+    if (!confirm("Delete this document and all its extracted data?")) return;
+    setDeletingId(documentId);
+    try {
+      await deleteDocument(getToken, documentId);
+      setItems((prev) => prev.filter((d) => d.id !== documentId));
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Delete failed");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-10">
+    <main className="min-h-screen bg-bg px-6 py-10">
       <div className="mx-auto max-w-7xl">
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">P1 Screen</p>
-            <h1 className="text-2xl font-semibold text-slate-900">Asset Documents</h1>
-            <p className="text-sm text-slate-600">Asset: {assetId}</p>
+            <h1 className="font-serif text-2xl text-text-primary">Asset Documents</h1>
+            <p className="mt-1 text-sm text-text-secondary font-mono">{assetId}</p>
           </div>
           <div className="flex gap-2">
-            <Link href="/" className="rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700">
+            <Link href="/" className="rounded-full border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary">
               Assets
             </Link>
             <Link
               href={`/obligations?asset_id=${assetId}`}
-              className="rounded-full bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white"
+              className="rounded-full bg-brand px-3 py-1.5 text-sm font-medium text-bg"
             >
               Obligations
             </Link>
           </div>
         </header>
 
-        <form onSubmit={handleUpload} className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-sm font-semibold text-slate-900">Upload document</p>
+        <form onSubmit={handleUpload} className="mb-6 rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <p className="text-sm font-medium text-text-primary">Upload document</p>
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <input
               type="file"
               accept=".pdf,.txt,application/pdf,text/plain"
               onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
-              className="max-w-md rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+              className="max-w-md rounded-xl border border-border bg-bg-subtle px-3 py-2 text-sm text-text-primary"
             />
             <button
               type="submit"
               disabled={isUploading}
-              className="rounded-full bg-cyan-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-bg disabled:opacity-50"
             >
               {isUploading ? "Uploading..." : "Upload"}
             </button>
           </div>
         </form>
 
-        <div className="mb-4 flex flex-wrap gap-3">
+        <div className="mb-5 flex flex-wrap gap-3">
           <label className="text-sm">
-            <span className="mr-2 font-semibold text-slate-700">Doc type</span>
+            <span className="mr-2 font-medium text-text-secondary">Doc type</span>
             <select
               value={docType}
               onChange={(event) => setDocType(event.target.value)}
-              className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm"
+              className="rounded-lg border border-border bg-surface px-2 py-1 text-sm text-text-primary outline-none focus:border-border-strong"
             >
               {DOC_TYPES.map((value) => (
                 <option key={value} value={value}>
@@ -146,11 +159,11 @@ export default function AssetDocumentsPage() {
           </label>
 
           <label className="text-sm">
-            <span className="mr-2 font-semibold text-slate-700">Parse status</span>
+            <span className="mr-2 font-medium text-text-secondary">Parse status</span>
             <select
               value={parseStatus}
               onChange={(event) => setParseStatus(event.target.value)}
-              className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm"
+              className="rounded-lg border border-border bg-surface px-2 py-1 text-sm text-text-primary outline-none focus:border-border-strong"
             >
               {PARSE_STATUSES.map((value) => (
                 <option key={value} value={value}>
@@ -161,53 +174,67 @@ export default function AssetDocumentsPage() {
           </label>
         </div>
 
-        {isLoading ? <p className="text-sm text-slate-600">Loading documents...</p> : null}
-        {error ? <p className="mb-4 rounded-xl bg-rose-100 px-4 py-3 text-sm font-medium text-rose-700">{error}</p> : null}
+        {isLoading ? <p className="text-sm text-text-secondary">Loading documents...</p> : null}
+        {error ? (
+          <p className="mb-4 rounded-xl bg-danger-subtle px-4 py-3 text-sm font-medium text-danger">{error}</p>
+        ) : null}
 
         {!isLoading && !error ? (
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
             <table className="w-full border-collapse text-sm">
-              <thead className="bg-slate-900 text-left text-xs uppercase tracking-wide text-slate-200">
-                <tr>
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Doc Type</th>
-                  <th className="px-4 py-3">Parse Status</th>
-                  <th className="px-4 py-3">Uploaded At</th>
-                  <th className="px-4 py-3">Pages</th>
-                  <th className="px-4 py-3">Open</th>
+              <thead>
+                <tr className="border-b border-border bg-bg-subtle">
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Doc Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Parse Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Uploaded At</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Pages</th>
+                  <th className="px-4 py-3"></th>
+                  <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((document) => (
-                  <tr key={document.id} className="border-t border-slate-100">
-                    <td className="px-4 py-3 font-medium text-slate-900">
-                      <Link href={`/documents/${document.id}`} className="underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700">
+                  <tr key={document.id} className="border-t border-border transition-colors hover:bg-bg-subtle">
+                    <td className="px-4 py-3 font-medium text-text-primary">
+                      <Link href={`/documents/${document.id}`} className="underline decoration-border underline-offset-4 hover:decoration-border-strong">
                         {document.source_name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{document.doc_type}</td>
-                    <td className="px-4 py-3 text-slate-600">{document.parse_status}</td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 text-text-secondary">{document.doc_type}</td>
+                    <td className="px-4 py-3 text-text-secondary">{document.parse_status}</td>
+                    <td className="px-4 py-3 text-text-secondary">
                       {document.uploaded_at ? document.uploaded_at.replace("T", " ").slice(0, 19) : "—"}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{document.total_pages ?? "—"}</td>
+                    <td className="px-4 py-3 text-text-secondary">{document.total_pages ?? "—"}</td>
                     <td className="px-4 py-3">
                       <Link
                         href={`/documents/${document.id}`}
-                        className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                        style={{ background: "var(--info-subtle)", color: "var(--info)", borderColor: "var(--info)" }}
+                        className="rounded-full border px-2.5 py-1 text-xs font-medium"
                       >
                         View
                       </Link>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => void handleDelete(document.id)}
+                        disabled={deletingId === document.id}
+                        style={{ background: "var(--danger-subtle)", color: "var(--danger)", borderColor: "var(--danger)" }}
+                        className="rounded-full border px-2.5 py-1 text-xs font-medium disabled:opacity-50"
+                      >
+                        {deletingId === document.id ? "Deleting..." : "Delete"}
+                      </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
             {nextCursor ? (
-              <div className="border-t border-slate-100 p-3">
+              <div className="border-t border-border p-3">
                 <button
                   onClick={() => void loadPage(nextCursor, true)}
-                  className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                  className="rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:text-text-primary"
                 >
                   Load More
                 </button>

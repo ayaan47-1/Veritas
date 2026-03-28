@@ -1,8 +1,32 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Instrument_Serif, Jost, JetBrains_Mono } from "next/font/google";
 import { ClerkProvider, SignInButton, SignUpButton, UserButton, Show } from "@clerk/nextjs";
+import NavLinks from "@/components/NavLinks";
 import NotificationBell from "@/components/NotificationBell";
+import ThemeToggle from "@/components/ThemeToggle";
 import "./globals.css";
+
+const instrumentSerif = Instrument_Serif({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-instrument-serif",
+  display: "swap",
+});
+
+const jost = Jost({
+  weight: ["300", "400", "500", "600"],
+  subsets: ["latin"],
+  variable: "--font-jost",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  weight: ["400", "500"],
+  subsets: ["latin"],
+  variable: "--font-jetbrains-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "VeritasLayer",
@@ -15,32 +39,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${instrumentSerif.variable} ${jost.variable} ${jetbrainsMono.variable}`}
+    >
       <body className="antialiased">
         <ClerkProvider>
-          <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 px-6 py-3 backdrop-blur">
-            <div className="mx-auto flex max-w-7xl items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Link href="/" className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-800">
+          <header className="sticky top-0 z-40 border-b border-border bg-surface/80 backdrop-blur-md">
+            <div className="mx-auto flex h-11 max-w-7xl items-center justify-between px-6">
+              <div className="flex items-center gap-6">
+                <Link href="/" className="font-serif text-base uppercase tracking-widest text-text-primary">
                   VeritasLayer
                 </Link>
-                <nav className="hidden items-center gap-2 text-sm text-slate-600 md:flex">
-                  <Link href="/" className="rounded-full px-3 py-1 hover:bg-slate-100">
-                    Assets
-                  </Link>
-                  <Link href="/obligations" className="rounded-full px-3 py-1 hover:bg-slate-100">
-                    Obligations
-                  </Link>
-                  <Link href="/risks" className="rounded-full px-3 py-1 hover:bg-slate-100">
-                    Risks
-                  </Link>
-                  <Link href="/admin/users" className="rounded-full px-3 py-1 hover:bg-slate-100">
-                    Admin
-                  </Link>
-                </nav>
+                <NavLinks />
               </div>
-
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1">
+                <ThemeToggle />
                 <Show when="signed-out">
                   <SignInButton />
                   <SignUpButton />
@@ -52,13 +67,11 @@ export default function RootLayout({
               </div>
             </div>
           </header>
-          <div>
-            <Show when="signed-out">
-              <div className="border-b border-amber-300 bg-amber-100 px-6 py-2 text-center text-sm font-medium text-amber-900">
-                Sign in to load assets and review queues.
-              </div>
-            </Show>
-          </div>
+          <Show when="signed-out">
+            <div className="border-b border-accent-subtle bg-accent-subtle px-6 py-2 text-center text-sm font-medium text-accent">
+              Sign in to load assets and review queues.
+            </div>
+          </Show>
           {children}
         </ClerkProvider>
       </body>

@@ -33,6 +33,7 @@ class ParseStatus(str, enum.Enum):
     extraction = "extraction"
     verification = "verification"
     scoring = "scoring"
+    rescoring = "rescoring"
     complete = "complete"
     partially_processed = "partially_processed"
     failed = "failed"
@@ -117,13 +118,12 @@ class ReviewStatus(str, enum.Enum):
 
 
 class RiskType(str, enum.Enum):
-    missing_required_document = "missing_required_document"
-    expired_certificate_or_insurance = "expired_certificate_or_insurance"
-    inspection_failed_reinspection_required = "inspection_failed_reinspection_required"
-    approval_overdue = "approval_overdue"
-    payment_term_conflict = "payment_term_conflict"
-    scope_change_indicator = "scope_change_indicator"
-    schedule_dependency_blocker = "schedule_dependency_blocker"
+    financial = "financial"
+    schedule = "schedule"
+    quality = "quality"
+    safety = "safety"
+    compliance = "compliance"
+    contractual = "contractual"
     unknown_risk = "unknown_risk"
 
 
@@ -156,4 +156,3 @@ class NotificationStatus(str, enum.Enum):
     pending = "pending"
     sent = "sent"
     read = "read"
-

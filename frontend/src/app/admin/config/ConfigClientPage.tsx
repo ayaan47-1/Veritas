@@ -18,13 +18,11 @@ export default function ConfigClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("overrides");
 
-  // Add/edit override form
   const [formKey, setFormKey] = useState("");
   const [formValue, setFormValue] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Edit mode: which override key is being edited
   const [editingKey, setEditingKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -79,7 +77,6 @@ export default function ConfigClientPage() {
     setFormError(null);
     try {
       await upsertConfigOverride(getToken, formKey.trim(), parsed, me.id);
-      // Reload to get fresh effective config
       const fresh = await getConfig(getToken);
       setConfig(fresh);
       setEditingKey(null);
@@ -105,13 +102,13 @@ export default function ConfigClientPage() {
   }
 
   if (isLoading) {
-    return <main className="min-h-screen bg-slate-50 px-6 py-10 text-sm text-slate-600">Loading config...</main>;
+    return <main className="min-h-screen bg-bg px-6 py-10 text-sm text-text-secondary">Loading config...</main>;
   }
 
   if (me && me.role !== "admin") {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50">
-        <p className="text-sm font-medium text-slate-500">Access denied — admin only.</p>
+      <main className="flex min-h-screen items-center justify-center bg-bg">
+        <p className="text-sm font-medium text-text-tertiary">Access denied — admin only.</p>
       </main>
     );
   }
@@ -120,36 +117,37 @@ export default function ConfigClientPage() {
   const overrideKeys = Object.keys(overrides);
 
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-10">
+    <main className="min-h-screen bg-bg px-6 py-10">
       <div className="mx-auto max-w-5xl">
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">Admin</p>
-            <h1 className="text-2xl font-semibold text-slate-900">Config</h1>
-            <p className="text-sm text-slate-500">
+            <p className="text-xs font-medium uppercase tracking-widest text-text-tertiary">Admin</p>
+            <h1 className="mt-1 font-serif text-2xl text-text-primary">Config</h1>
+            <p className="mt-1 text-sm text-text-secondary">
               {overrideKeys.length} active {overrideKeys.length === 1 ? "override" : "overrides"}
             </p>
           </div>
           <Link
             href="/admin/users"
-            className="rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700"
+            className="rounded-full border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary"
           >
             Users
           </Link>
         </header>
 
         {error ? (
-          <p className="mb-4 rounded-xl bg-rose-100 px-4 py-3 text-sm font-medium text-rose-700">{error}</p>
+          <p className="mb-4 rounded-xl bg-danger-subtle px-4 py-3 text-sm font-medium text-danger">{error}</p>
         ) : null}
 
-        {/* Tabs */}
-        <div className="mb-4 flex gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm w-fit">
+        <div className="mb-5 flex w-fit gap-1 rounded-xl border border-border bg-bg-subtle p-1">
           {(["overrides", "effective"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`rounded-lg px-4 py-1.5 text-sm font-semibold capitalize transition-colors ${
-                tab === t ? "bg-slate-900 text-white" : "text-slate-600 hover:text-slate-900"
+              className={`rounded-lg px-4 py-1.5 text-sm font-medium capitalize transition-colors ${
+                tab === t
+                  ? "bg-surface text-text-primary shadow-sm"
+                  : "text-text-secondary hover:text-text-primary"
               }`}
             >
               {t === "overrides" ? "Overrides" : "Effective Config"}
@@ -159,23 +157,22 @@ export default function ConfigClientPage() {
 
         {tab === "overrides" ? (
           <div className="space-y-4">
-            {/* Existing overrides */}
             {overrideKeys.length > 0 ? (
-              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
                 <table className="w-full border-collapse text-sm">
-                  <thead className="bg-slate-900 text-left text-xs uppercase tracking-wide text-slate-200">
-                    <tr>
-                      <th className="px-4 py-3">Key</th>
-                      <th className="px-4 py-3">Value</th>
-                      <th className="px-4 py-3">Actions</th>
+                  <thead>
+                    <tr className="border-b border-border bg-bg-subtle">
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Key</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Value</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {overrideKeys.map((key) => (
-                      <tr key={key} className="border-t border-slate-100 align-top">
-                        <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-800">{key}</td>
+                      <tr key={key} className="border-t border-border align-top transition-colors hover:bg-bg-subtle">
+                        <td className="px-4 py-3 font-mono text-xs font-medium text-text-primary">{key}</td>
                         <td className="max-w-sm px-4 py-3">
-                          <pre className="overflow-x-auto rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                          <pre className="overflow-x-auto rounded-lg border border-border bg-bg-subtle px-3 py-2 text-xs text-text-secondary">
                             {JSON.stringify(overrides[key], null, 2)}
                           </pre>
                         </td>
@@ -183,13 +180,14 @@ export default function ConfigClientPage() {
                           <div className="flex gap-2">
                             <button
                               onClick={() => startEdit(key, overrides[key])}
-                              className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-400"
+                              className="rounded-full border border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary"
                             >
                               Edit
                             </button>
                             <button
                               onClick={() => void handleDelete(key)}
-                              className="rounded-full border border-rose-300 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                              style={{ background: "var(--danger-subtle)", color: "var(--danger)", borderColor: "var(--danger)" }}
+                              className="rounded-full border px-2.5 py-1 text-xs font-medium"
                             >
                               Delete
                             </button>
@@ -201,19 +199,18 @@ export default function ConfigClientPage() {
                 </table>
               </section>
             ) : (
-              <p className="text-sm text-slate-500">No overrides active. Base config is in effect.</p>
+              <p className="text-sm text-text-secondary">No overrides active. Base config is in effect.</p>
             )}
 
-            {/* Add/Edit form */}
             {editingKey !== undefined ? (
-              <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <h2 className="mb-4 text-sm font-semibold text-slate-900">
+              <section className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+                <h2 className="mb-4 text-sm font-medium text-text-primary">
                   {editingKey !== null ? `Edit override: ${editingKey}` : "Add override"}
                 </h2>
                 <div className="space-y-3">
                   <div>
-                    <label className="mb-1 block text-xs font-semibold text-slate-600">
-                      Key <span className="font-normal text-slate-400">(dotted path, e.g. llm or scoring.weights)</span>
+                    <label className="mb-1 block text-xs font-medium uppercase tracking-widest text-text-tertiary">
+                      Key <span className="normal-case font-normal text-text-tertiary">(dotted path, e.g. llm or scoring.weights)</span>
                     </label>
                     <input
                       type="text"
@@ -221,29 +218,29 @@ export default function ConfigClientPage() {
                       onChange={(e) => setFormKey(e.target.value)}
                       disabled={editingKey !== null}
                       placeholder="llm"
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-50 disabled:text-slate-500"
+                      className="w-full rounded-xl border border-border bg-bg-subtle px-3 py-2 font-mono text-sm text-text-primary outline-none transition-colors focus:border-border-strong disabled:opacity-50"
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-semibold text-slate-600">
-                      Value <span className="font-normal text-slate-400">(JSON object)</span>
+                    <label className="mb-1 block text-xs font-medium uppercase tracking-widest text-text-tertiary">
+                      Value <span className="normal-case font-normal text-text-tertiary">(JSON object)</span>
                     </label>
                     <textarea
                       value={formValue}
                       onChange={(e) => setFormValue(e.target.value)}
                       rows={8}
                       spellCheck={false}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                      className="w-full rounded-xl border border-border bg-bg-subtle px-3 py-2 font-mono text-sm text-text-primary outline-none transition-colors focus:border-border-strong"
                     />
                   </div>
                   {formError ? (
-                    <p className="rounded-xl bg-rose-100 px-3 py-2 text-xs font-medium text-rose-700">{formError}</p>
+                    <p className="rounded-xl bg-danger-subtle px-3 py-2 text-xs font-medium text-danger">{formError}</p>
                   ) : null}
                   <div className="flex gap-2">
                     <button
                       onClick={() => void submitOverride()}
                       disabled={saving}
-                      className="rounded-full bg-cyan-700 px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+                      className="rounded-full bg-brand px-4 py-1.5 text-sm font-medium text-bg disabled:opacity-50"
                     >
                       {saving ? "Saving…" : "Save Override"}
                     </button>
@@ -254,7 +251,7 @@ export default function ConfigClientPage() {
                         setFormValue("{}");
                         setFormError(null);
                       }}
-                      className="rounded-full border border-slate-300 px-4 py-1.5 text-sm font-semibold text-slate-700"
+                      className="rounded-full border border-border px-4 py-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary"
                     >
                       Cancel
                     </button>
@@ -264,20 +261,20 @@ export default function ConfigClientPage() {
             ) : (
               <button
                 onClick={startAdd}
-                className="rounded-full bg-slate-900 px-4 py-1.5 text-sm font-semibold text-white"
+                className="rounded-full border border-border px-4 py-1.5 text-sm text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary"
               >
                 + Add Override
               </button>
             )}
           </div>
         ) : (
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-4 py-3">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+          <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+            <div className="border-b border-border px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-wider text-text-tertiary">
                 Merged result of base config + active overrides
               </p>
             </div>
-            <pre className="overflow-x-auto px-6 py-5 text-xs text-slate-700 leading-relaxed">
+            <pre className="overflow-x-auto px-6 py-5 font-mono text-xs leading-relaxed text-text-secondary">
               {JSON.stringify(config?.effective ?? {}, null, 2)}
             </pre>
           </section>

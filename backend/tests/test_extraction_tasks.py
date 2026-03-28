@@ -167,6 +167,20 @@ def _make_chunk(document_id: uuid.UUID, page: int, text: str) -> Chunk:
     )
 
 
+def test_risk_type_enum_has_prompt_categories():
+    expected = {
+        "financial",
+        "schedule",
+        "quality",
+        "safety",
+        "compliance",
+        "contractual",
+        "unknown_risk",
+    }
+    actual = {member.value for member in RiskType}
+    assert actual == expected
+
+
 def test_extract_entities_partial_failure_and_suggestions(monkeypatch):
     document = _make_document()
     chunks = [
@@ -257,6 +271,45 @@ def test_extract_obligations_maps_fields_and_handles_partial_failure(monkeypatch
     assert db.extraction_runs[0].status == ExtractionStatus.completed
 
 
+def test_extract_obligations_maps_delivery_and_maintenance_aliases(monkeypatch):
+    document = _make_document()
+    chunks = [_make_chunk(document.id, 1, "Deliver reports and maintain records.")]
+    db = FakeSession(document=document, chunks=chunks, entities=[])
+
+    def _fake_llm(*, model: str, prompt: str, stage: str):
+        return [
+            {
+                "quote": "Deliver reports weekly.",
+                "obligation_type": "delivery",
+                "modality": "shall",
+                "severity": "medium",
+                "due_date": None,
+                "due_rule": "within 7 days",
+                "responsible_party": None,
+            },
+            {
+                "quote": "Maintain records on site.",
+                "obligation_type": "maintenance",
+                "modality": "must",
+                "severity": "medium",
+                "due_date": None,
+                "due_rule": None,
+                "responsible_party": None,
+            },
+        ]
+
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    extract_task.extract_obligations(document.id)
+
+    assert len(db.obligations) == 2
+    assert db.obligations[0].obligation_type == ObligationType.submission
+    assert db.obligations[1].obligation_type == ObligationType.inspection
+
+
 def test_extract_risks_uses_stage_fallback_for_remaining_chunks(monkeypatch):
     document = _make_document()
     chunks = [
@@ -273,9 +326,9 @@ def test_extract_risks_uses_stage_fallback_for_remaining_chunks(monkeypatch):
             raise RuntimeError("primary down")
         if "alpha" in prompt.lower():
             calls.append((model, "alpha"))
-            return [{"quote": "alpha quote", "risk_type": "approval_overdue", "severity": "medium", "explanation": "alpha"}]
+            return [{"quote": "alpha quote", "risk_type": "financial", "severity": "medium", "explanation": "alpha"}]
         calls.append((model, "beta"))
-        return [{"quote": "beta quote", "risk_type": "scope_change_indicator", "severity": "high", "explanation": "beta"}]
+        return [{"quote": "beta quote", "risk_type": "schedule", "severity": "high", "explanation": "beta"}]
 
     fake_settings = types.SimpleNamespace(
         raw={
@@ -303,7 +356,7 @@ def test_extract_risks_uses_stage_fallback_for_remaining_chunks(monkeypatch):
     ]
 
     assert len(db.risks) == 2
-    assert {r.risk_type for r in db.risks} == {RiskType.approval_overdue, RiskType.scope_change_indicator}
+    assert {r.risk_type for r in db.risks} == {RiskType.financial, RiskType.schedule}
     assert all(r.status == ReviewStatus.needs_review for r in db.risks)
     assert all(r.system_confidence == 0 for r in db.risks)
 
@@ -312,4 +365,3 @@ def test_extract_risks_uses_stage_fallback_for_remaining_chunks(monkeypatch):
     assert run.stage == ExtractionStage.risk_extraction
     assert run.model_used == "fallback-model"
     assert run.status == ExtractionStatus.completed
-

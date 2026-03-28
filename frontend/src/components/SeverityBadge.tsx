@@ -1,16 +1,46 @@
 type Severity = "low" | "medium" | "high" | "critical";
 
-const SEVERITY_STYLE: Record<Severity, string> = {
-  low: "bg-sky-100 text-sky-800 border-sky-300",
-  medium: "bg-amber-100 text-amber-800 border-amber-300",
-  high: "bg-orange-100 text-orange-800 border-orange-300",
-  critical: "bg-rose-100 text-rose-800 border-rose-300",
+const SEVERITY_STYLE: Record<Severity, { background: string; color: string; borderColor: string }> = {
+  low: {
+    background: "var(--bg-subtle)",
+    color: "var(--text-secondary)",
+    borderColor: "var(--border)",
+  },
+  medium: {
+    background: "var(--accent-subtle)",
+    color: "var(--accent)",
+    borderColor: "var(--accent)",
+  },
+  high: {
+    background: "var(--warning-subtle)",
+    color: "var(--warning)",
+    borderColor: "var(--warning)",
+  },
+  critical: {
+    background: "var(--danger-subtle)",
+    color: "var(--danger)",
+    borderColor: "var(--danger)",
+  },
 };
 
-export default function SeverityBadge({ severity }: { severity: Severity }) {
+export default function SeverityBadge({
+  severity,
+  llmSeverity,
+}: {
+  severity: Severity;
+  llmSeverity?: Severity | null;
+}) {
+  const effectiveSeverity = llmSeverity ?? severity;
+  const isRevised = llmSeverity != null && llmSeverity !== severity;
+
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${SEVERITY_STYLE[severity]}`}>
-      {severity.toUpperCase()}
+    <span
+      style={SEVERITY_STYLE[effectiveSeverity]}
+      className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium uppercase tracking-wide"
+      title={isRevised ? `Revised by LLM from ${severity}` : undefined}
+    >
+      {effectiveSeverity}
+      {isRevised ? <span className="text-[0.6rem] opacity-60">*</span> : null}
     </span>
   );
 }

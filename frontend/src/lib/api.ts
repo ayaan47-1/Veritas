@@ -73,6 +73,20 @@ export async function getAssets(getToken: GetTokenFn): Promise<PaginatedResponse
   return apiFetch<PaginatedResponse<Asset>>("/assets", getToken);
 }
 
+export async function createAsset(
+  getToken: GetTokenFn,
+  payload: { name: string; description?: string; created_by: string },
+): Promise<Asset> {
+  return apiFetch<Asset>("/assets", getToken, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteDocument(getToken: GetTokenFn, documentId: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/documents/${documentId}`, getToken, { method: "DELETE" });
+}
+
 export async function getAssetDocuments(
   getToken: GetTokenFn,
   params: {

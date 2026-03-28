@@ -28,6 +28,8 @@ class Obligation(Base, UUIDPrimaryKeyMixin):
     )
     system_confidence: Mapped[int] = mapped_column(Integer, nullable=False)
     reviewer_confidence: Mapped[int | None] = mapped_column(Integer)
+    llm_severity: Mapped[Severity | None] = mapped_column(Enum(Severity))
+    llm_quality_confidence: Mapped[int | None] = mapped_column(Integer)
     has_external_reference: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     contradiction_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     extraction_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("extraction_runs.id"))
@@ -43,6 +45,10 @@ class Obligation(Base, UUIDPrimaryKeyMixin):
         CheckConstraint(
             "reviewer_confidence IS NULL OR (reviewer_confidence >= 0 AND reviewer_confidence <= 100)",
             name="ck_obligation_rev_conf",
+        ),
+        CheckConstraint(
+            "llm_quality_confidence IS NULL OR (llm_quality_confidence >= 0 AND llm_quality_confidence <= 100)",
+            name="ck_obligation_llm_conf",
         ),
         Index("ix_obligations_document_status", "document_id", "status"),
         Index("ix_obligations_status_severity", "status", "severity"),

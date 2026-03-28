@@ -58,6 +58,8 @@ def _serialize_risk(risk: Risk, *, evidence: list[RiskEvidence] | None = None) -
         "status": risk.status.value,
         "system_confidence": risk.system_confidence,
         "reviewer_confidence": risk.reviewer_confidence,
+        "llm_severity": risk.llm_severity.value if risk.llm_severity else None,
+        "llm_quality_confidence": risk.llm_quality_confidence,
         "has_external_reference": risk.has_external_reference,
         "contradiction_flag": risk.contradiction_flag,
         "created_at": risk.created_at.isoformat() if risk.created_at else None,

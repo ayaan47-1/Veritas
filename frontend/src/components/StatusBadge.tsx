@@ -1,9 +1,21 @@
 type Status = "needs_review" | "confirmed" | "rejected";
 
-const STATUS_STYLE: Record<Status, string> = {
-  needs_review: "bg-amber-100 text-amber-800 border-amber-300",
-  confirmed: "bg-emerald-100 text-emerald-800 border-emerald-300",
-  rejected: "bg-slate-200 text-slate-700 border-slate-300",
+const STATUS_STYLE: Record<Status, { background: string; color: string; borderColor: string }> = {
+  needs_review: {
+    background: "var(--accent-subtle)",   /* light yellow */
+    color: "var(--accent)",
+    borderColor: "var(--accent)",
+  },
+  confirmed: {
+    background: "var(--success-subtle)",  /* light green */
+    color: "var(--success)",
+    borderColor: "var(--success)",
+  },
+  rejected: {
+    background: "var(--danger-subtle)",   /* light red */
+    color: "var(--danger)",
+    borderColor: "var(--danger)",
+  },
 };
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -15,7 +27,8 @@ const STATUS_LABEL: Record<Status, string> = {
 export default function StatusBadge({ status }: { status: Status }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold tracking-wide ${STATUS_STYLE[status]}`}
+      style={STATUS_STYLE[status]}
+      className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium tracking-wide"
     >
       {STATUS_LABEL[status]}
     </span>

@@ -98,33 +98,42 @@ export default function NotificationBell() {
       <button
         type="button"
         onClick={() => setIsOpen((open) => !open)}
-        className="relative rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        aria-label="Notifications"
+        className="relative flex h-8 w-8 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-bg-subtle hover:text-text-primary"
       >
-        Notifications
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
         {unreadCount > 0 ? (
-          <span className="ml-2 inline-flex min-w-5 justify-center rounded-full bg-rose-600 px-1.5 text-xs font-bold text-white">
-            {unreadCount}
-          </span>
+          <span
+            className="absolute right-1 top-1 h-2 w-2 rounded-full"
+            style={{ background: "var(--accent)" }}
+          />
         ) : null}
       </button>
 
       {isOpen ? (
-        <div className="absolute right-0 z-50 mt-2 w-96 max-w-[90vw] rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-sm font-semibold text-slate-900">Notifications</p>
+        <div className="absolute right-0 z-50 mt-2 w-96 max-w-[90vw] rounded-2xl border border-border bg-surface p-3 shadow-xl">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm font-medium text-text-primary">Notifications</p>
             <button
               type="button"
               onClick={() => void loadInitial()}
-              className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700"
+              className="rounded-full border border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary"
             >
               Refresh
             </button>
           </div>
 
-          {isLoading ? <p className="text-sm text-slate-600">Loading...</p> : null}
-          {error ? <p className="mb-2 rounded-lg bg-rose-100 px-3 py-2 text-xs font-medium text-rose-700">{error}</p> : null}
+          {isLoading ? <p className="text-sm text-text-secondary">Loading...</p> : null}
+          {error ? (
+            <p className="mb-2 rounded-lg bg-danger-subtle px-3 py-2 text-xs font-medium text-danger">{error}</p>
+          ) : null}
 
-          {!isLoading && items.length === 0 ? <p className="text-sm text-slate-600">No notifications yet.</p> : null}
+          {!isLoading && items.length === 0 ? (
+            <p className="text-sm text-text-secondary">No notifications yet.</p>
+          ) : null}
 
           <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
             {items.map((item) => (
@@ -132,29 +141,31 @@ export default function NotificationBell() {
                 key={item.id}
                 type="button"
                 onClick={() => void handleMarkRead(item)}
-                className={`w-full rounded-xl border p-3 text-left ${
-                  item.status === "read" ? "border-slate-200 bg-slate-50" : "border-cyan-200 bg-cyan-50"
+                className={`w-full rounded-xl border p-3 text-left transition-colors ${
+                  item.status === "read"
+                    ? "border-border bg-bg-subtle"
+                    : "border-border-strong bg-accent-subtle"
                 }`}
               >
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <p className="text-xs font-medium uppercase tracking-wider text-text-tertiary">
                   {item.event?.event_type ?? "unknown"}
                 </p>
-                <p className="mt-1 text-sm text-slate-800">
+                <p className="mt-1 text-sm text-text-primary">
                   {item.event ? summarizePayload(item.event.payload) : "No event payload"}
                 </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  {item.read_at ? `Read ${item.read_at.replace("T", " ").slice(0, 19)}` : "Tap to mark read"}
+                <p className="mt-1 text-xs text-text-tertiary">
+                  {item.read_at ? `Read ${item.read_at.replace("T", " ").slice(0, 19)}` : "Click to mark read"}
                 </p>
               </button>
             ))}
           </div>
 
           {nextCursor ? (
-            <div className="mt-3 border-t border-slate-100 pt-2">
+            <div className="mt-3 border-t border-border pt-2">
               <button
                 type="button"
                 onClick={() => void loadMore()}
-                className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                className="rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:text-text-primary"
               >
                 Load More
               </button>

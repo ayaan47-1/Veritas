@@ -190,7 +190,7 @@ def _make_risk(document_id: uuid.UUID, text: str) -> Risk:
     return Risk(
         id=uuid.uuid4(),
         document_id=document_id,
-        risk_type=RiskType.scope_change_indicator,
+        risk_type=RiskType.schedule,
         risk_text=text,
         severity=Severity.high,
         status=ReviewStatus.needs_review,
@@ -263,7 +263,6 @@ def test_verify_detects_contradictions_and_creates_conflict_risk(monkeypatch):
     assert ob1.contradiction_flag is True
     assert ob2.contradiction_flag is True
 
-    conflict_risks = [r for r in db.risks if r.risk_type == RiskType.payment_term_conflict]
+    conflict_risks = [r for r in db.risks if r.risk_type == RiskType.contractual]
     assert len(conflict_risks) == 1
     assert len(db.contradictions) == 1
-

@@ -212,7 +212,7 @@ def _detect_contradictions(
             risk = Risk(
                 id=uuid.uuid4(),
                 document_id=document.id,
-                risk_type=RiskType.payment_term_conflict,
+                risk_type=RiskType.contractual,
                 risk_text="Potential contradiction detected between obligations",
                 severity=Severity.high,
                 status=ReviewStatus.needs_review,

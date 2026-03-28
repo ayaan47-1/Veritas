@@ -1,15 +1,28 @@
 type Role = "admin" | "reviewer" | "viewer";
 
-const ROLE_STYLE: Record<Role, string> = {
-  admin: "bg-purple-100 text-purple-800 border-purple-300",
-  reviewer: "bg-blue-100 text-blue-800 border-blue-300",
-  viewer: "bg-slate-100 text-slate-700 border-slate-300",
+const ROLE_STYLE: Record<Role, { background: string; color: string; borderColor: string }> = {
+  admin: {
+    background: "var(--accent-subtle)",
+    color: "var(--accent)",
+    borderColor: "var(--accent)",
+  },
+  reviewer: {
+    background: "var(--bg-subtle)",
+    color: "var(--text-primary)",
+    borderColor: "var(--border-strong)",
+  },
+  viewer: {
+    background: "var(--bg-subtle)",
+    color: "var(--text-tertiary)",
+    borderColor: "var(--border)",
+  },
 };
 
 export default function RoleBadge({ role }: { role: Role }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold capitalize tracking-wide ${ROLE_STYLE[role]}`}
+      style={ROLE_STYLE[role]}
+      className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium capitalize tracking-wide"
     >
       {role}
     </span>

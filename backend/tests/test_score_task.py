@@ -177,7 +177,7 @@ def _make_risk(document_id: uuid.UUID, **overrides) -> Risk:
     data = {
         "id": uuid.uuid4(),
         "document_id": document_id,
-        "risk_type": RiskType.scope_change_indicator,
+        "risk_type": RiskType.schedule,
         "risk_text": "Potential scope change",
         "severity": Severity.high,
         "status": ReviewStatus.needs_review,
@@ -258,6 +258,129 @@ def test_score_risk_applies_penalties_and_gating(monkeypatch):
 
     score_task.score_extractions(document.id)
 
-    assert risk.system_confidence == 10
+    assert risk.system_confidence == 15
     assert risk.status == ReviewStatus.rejected
 
+
+def test_score_risk_statute_reference_adds_points(monkeypatch):
+    document = _make_document(DocumentType.contract)
+    risk = _make_risk(
+        document.id,
+        risk_text="Withhold amounts pursuant to C.R.S. § 38-26-107",
+    )
+    evidence = _make_risk_evidence(document.id, risk.id, TextSource.pdf_text)
+    db = FakeSession(document=document, risks=[risk], risk_evidence=[evidence])
+
+    monkeypatch.setattr(score_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(score_task, "update_parse_status", lambda *_a, **_k: None)
+
+    score_task.score_extractions(document.id)
+
+    assert risk.system_confidence == 65
+
+
+def test_score_risk_monetary_amount_adds_points(monkeypatch):
+    document = _make_document(DocumentType.contract)
+    risk = _make_risk(
+        document.id,
+        risk_text="Penalty of $50,000 for non-compliance",
+    )
+    evidence = _make_risk_evidence(document.id, risk.id, TextSource.pdf_text)
+    db = FakeSession(document=document, risks=[risk], risk_evidence=[evidence])
+
+    monkeypatch.setattr(score_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(score_task, "update_parse_status", lambda *_a, **_k: None)
+
+    score_task.score_extractions(document.id)
+
+    assert risk.system_confidence == 60
+
+
+def test_score_risk_deadline_adds_points(monkeypatch):
+    document = _make_document(DocumentType.contract)
+    risk = _make_risk(
+        document.id,
+        risk_text="Must be resolved within 30 days of notice",
+    )
+    evidence = _make_risk_evidence(document.id, risk.id, TextSource.pdf_text)
+    db = FakeSession(document=document, risks=[risk], risk_evidence=[evidence])
+
+    monkeypatch.setattr(score_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(score_task, "update_parse_status", lambda *_a, **_k: None)
+
+    score_task.score_extractions(document.id)
+
+    assert risk.system_confidence == 60
+
+
+def test_score_risk_external_reference_adds_points(monkeypatch):
+    document = _make_document(DocumentType.contract)
+    risk = _make_risk(
+        document.id,
+        has_external_reference=True,
+    )
+    evidence = _make_risk_evidence(document.id, risk.id, TextSource.pdf_text)
+    db = FakeSession(document=document, risks=[risk], risk_evidence=[evidence])
+
+    monkeypatch.setattr(score_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(score_task, "update_parse_status", lambda *_a, **_k: None)
+
+    score_task.score_extractions(document.id)
+
+    assert risk.system_confidence == 60
+
+
+def test_score_risk_contradiction_flag_adds_cross_obligation_points(monkeypatch):
+    document = _make_document(DocumentType.contract)
+    risk = _make_risk(
+        document.id,
+        contradiction_flag=True,
+    )
+    evidence = _make_risk_evidence(document.id, risk.id, TextSource.pdf_text)
+    db = FakeSession(document=document, risks=[risk], risk_evidence=[evidence])
+
+    monkeypatch.setattr(score_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(score_task, "update_parse_status", lambda *_a, **_k: None)
+
+    score_task.score_extractions(document.id)
+
+    assert risk.system_confidence == 30
+    assert risk.status == ReviewStatus.rejected
+
+
+def test_score_risk_combined_signals(monkeypatch):
+    document = _make_document(DocumentType.contract)
+    risk = _make_risk(
+        document.id,
+        risk_text="Penalty of $10,000 pursuant to § 12.3 within 60 days",
+        has_external_reference=True,
+    )
+    evidence = _make_risk_evidence(document.id, risk.id, TextSource.pdf_text)
+    db = FakeSession(document=document, risks=[risk], risk_evidence=[evidence])
+
+    monkeypatch.setattr(score_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(score_task, "update_parse_status", lambda *_a, **_k: None)
+
+    score_task.score_extractions(document.id)
+
+    assert risk.system_confidence == 80
+
+
+def test_score_obligation_statute_reference_adds_points(monkeypatch):
+    document = _make_document(DocumentType.contract)
+    obligation = _make_obligation(
+        document.id,
+        obligation_text="Comply with C.R.S. § 38-26-107 requirements",
+        due_kind=DueKind.none,
+        due_date=None,
+        due_rule=None,
+    )
+    evidence = _make_obligation_evidence(document.id, obligation.id, TextSource.pdf_text)
+    db = FakeSession(document=document, obligations=[obligation], obligation_evidence=[evidence])
+
+    monkeypatch.setattr(score_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(score_task, "update_parse_status", lambda *_a, **_k: None)
+
+    score_task.score_extractions(document.id)
+
+    assert obligation.system_confidence == 95
