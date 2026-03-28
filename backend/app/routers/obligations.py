@@ -63,6 +63,8 @@ def _serialize_obligation(obligation: Obligation, *, evidence: list[ObligationEv
         "status": obligation.status.value,
         "system_confidence": obligation.system_confidence,
         "reviewer_confidence": obligation.reviewer_confidence,
+        "llm_severity": obligation.llm_severity.value if obligation.llm_severity else None,
+        "llm_quality_confidence": obligation.llm_quality_confidence,
         "has_external_reference": obligation.has_external_reference,
         "contradiction_flag": obligation.contradiction_flag,
         "created_at": obligation.created_at.isoformat() if obligation.created_at else None,

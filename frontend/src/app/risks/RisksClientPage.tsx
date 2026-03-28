@@ -210,9 +210,17 @@ export default function RisksClientPage() {
                   <tr key={item.id} className="border-t border-border align-top transition-colors hover:bg-bg-subtle">
                     <td className="max-w-xl px-4 py-3 text-text-primary">{item.risk_text}</td>
                     <td className="px-4 py-3 text-text-secondary">{item.risk_type}</td>
-                    <td className="px-4 py-3"><SeverityBadge severity={item.severity} /></td>
+                    <td className="px-4 py-3"><SeverityBadge severity={item.severity} llmSeverity={item.llm_severity} /></td>
                     <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
-                    <td className="px-4 py-3 text-text-secondary">{item.system_confidence}</td>
+                    <td className="px-4 py-3 text-text-secondary">
+                      {item.llm_quality_confidence != null ? (
+                        <span title={`System: ${item.system_confidence}, LLM quality: ${item.llm_quality_confidence}`}>
+                          {item.llm_quality_confidence}
+                        </span>
+                      ) : (
+                        item.system_confidence
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
                         <button

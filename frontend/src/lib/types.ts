@@ -30,6 +30,8 @@ export type Obligation = {
   status: "needs_review" | "confirmed" | "rejected";
   system_confidence: number;
   reviewer_confidence: number | null;
+  llm_severity: "low" | "medium" | "high" | "critical" | null;
+  llm_quality_confidence: number | null;
   has_external_reference: boolean;
   contradiction_flag: boolean;
   created_at: string | null;
@@ -44,6 +46,8 @@ export type Risk = {
   status: "needs_review" | "confirmed" | "rejected";
   system_confidence: number;
   reviewer_confidence: number | null;
+  llm_severity: "low" | "medium" | "high" | "critical" | null;
+  llm_quality_confidence: number | null;
   has_external_reference: boolean;
   contradiction_flag: boolean;
   created_at: string | null;

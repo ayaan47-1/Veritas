@@ -201,6 +201,7 @@ export default function ObligationsClientPage() {
                   <SortHeader label="Type" sortKey="obligation_type" active={sortKey === "obligation_type"} dir={sortDir} onToggle={toggleSort} />
                   <SortHeader label="Severity" sortKey="severity" active={sortKey === "severity"} dir={sortDir} onToggle={toggleSort} />
                   <SortHeader label="Status" sortKey="status" active={sortKey === "status"} dir={sortDir} onToggle={toggleSort} />
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Confidence</th>
                   <SortHeader label="Due Date" sortKey="due_date" active={sortKey === "due_date"} dir={sortDir} onToggle={toggleSort} />
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Evidence</th>
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Actions</th>
@@ -215,8 +216,17 @@ export default function ObligationsClientPage() {
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-text-secondary">{item.obligation_type}</td>
-                    <td className="px-4 py-3"><SeverityBadge severity={item.severity} /></td>
+                    <td className="px-4 py-3"><SeverityBadge severity={item.severity} llmSeverity={item.llm_severity} /></td>
                     <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
+                    <td className="px-4 py-3 text-text-secondary">
+                      {item.llm_quality_confidence != null ? (
+                        <span title={`System: ${item.system_confidence}, LLM quality: ${item.llm_quality_confidence}`}>
+                          {item.llm_quality_confidence}
+                        </span>
+                      ) : (
+                        item.system_confidence
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-text-secondary">{item.due_date ? item.due_date.slice(0, 10) : "—"}</td>
                     <td className="px-4 py-3">
                       <Link

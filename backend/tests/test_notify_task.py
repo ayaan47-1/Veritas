@@ -134,7 +134,7 @@ def _make_risk(document_id: uuid.UUID, severity: Severity) -> Risk:
     return Risk(
         id=uuid.uuid4(),
         document_id=document_id,
-        risk_type=RiskType.scope_change_indicator,
+        risk_type=RiskType.schedule,
         risk_text="Potential issue",
         severity=severity,
         status=ReviewStatus.needs_review,

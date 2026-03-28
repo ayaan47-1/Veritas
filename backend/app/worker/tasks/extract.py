@@ -52,6 +52,13 @@ def _coerce_enum(value: object, enum_cls, default):
         return default
 
 
+_OBLIGATION_TYPE_ALIASES: dict[str, str] = {
+    "delivery": "submission",
+    "maintenance": "inspection",
+    "reporting": "compliance",
+}
+
+
 def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
@@ -125,12 +132,50 @@ def _get_or_create_prompt_version(db: Session, prompt_name: str, uploaded_by: uu
     return prompt
 
 
+_OBLIGATION_SCHEMA = (
+    'Extract every obligation (duty, requirement, or commitment) from the chunk. '
+    'For each obligation return a JSON object with these exact fields:\n'
+    '  "quote": verbatim sentence(s) from the text that state the obligation (required),\n'
+    '  "obligation_type": one of payment|delivery|reporting|compliance|maintenance|notification|other,\n'
+    '  "modality": one of must|shall|will|should|may|unknown,\n'
+    '  "severity": one of low|medium|high|critical,\n'
+    '  "due_date": ISO date string or null,\n'
+    '  "due_rule": relative deadline description or null,\n'
+    '  "responsible_party": name of the obligor or null.\n'
+    'Return [] if no obligations found. Return strict JSON array only.'
+)
+
+_RISK_SCHEMA = (
+    'Extract every risk, liability, or penalty clause from the chunk. '
+    'For each risk return a JSON object with these exact fields:\n'
+    '  "quote": verbatim sentence(s) from the text describing the risk (required),\n'
+    '  "risk_type": one of financial|schedule|quality|safety|compliance|contractual|unknown_risk,\n'
+    '  "severity": one of low|medium|high|critical.\n'
+    'Return [] if no risks found. Return strict JSON array only.'
+)
+
+_ENTITY_SCHEMA = (
+    'Extract every named entity (person, company, organization, location) from the chunk. '
+    'For each entity return a JSON object with these exact fields:\n'
+    '  "entity_type": one of person|organization|location|agreement_date|other,\n'
+    '  "entity_value": the exact name or value as it appears in the text,\n'
+    '  "location": brief description of where in the text (e.g. "Section 1").\n'
+    'Return [] if no entities found. Return strict JSON array only.'
+)
+
+_STAGE_SCHEMAS = {
+    "obligation_extraction": _OBLIGATION_SCHEMA,
+    "risk_extraction": _RISK_SCHEMA,
+    "entity_extraction": _ENTITY_SCHEMA,
+}
+
+
 def _build_prompt(stage_name: str, chunk: Chunk, document: Document) -> str:
+    schema = _STAGE_SCHEMAS.get(stage_name, "Return strict JSON array only.")
     return (
-        f"Stage: {stage_name}\n"
         f"Document type: {document.doc_type.value}\n"
-        f"Page: {chunk.page_number}\n"
-        "Return strict JSON array only.\n"
+        f"Page: {chunk.page_number}\n\n"
+        f"{schema}\n\n"
         f"Chunk text:\n{chunk.text}"
     )
 
@@ -319,7 +364,11 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
             if not obligation_text:
                 continue
 
-            obligation_type = _coerce_enum(entry.get("obligation_type"), ObligationType, ObligationType.other)
+            raw_obligation_type = entry.get("obligation_type")
+            if isinstance(raw_obligation_type, str):
+                normalized = raw_obligation_type.strip().lower()
+                raw_obligation_type = _OBLIGATION_TYPE_ALIASES.get(normalized, normalized)
+            obligation_type = _coerce_enum(raw_obligation_type, ObligationType, ObligationType.other)
             modality = _coerce_enum(entry.get("modality"), Modality, Modality.unknown)
             severity = _coerce_enum(entry.get("severity"), Severity, Severity.medium)
             due_kind, due_date, due_rule = _parse_due_fields(entry.get("due_date"), entry.get("due_rule"))
@@ -460,4 +509,3 @@ def extract_risks(document_id: str) -> None:
         prompt_name="extract_risks_default",
         impl=_extract_risks_impl,
     )
-

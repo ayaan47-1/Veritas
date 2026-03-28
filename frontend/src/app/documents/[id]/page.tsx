@@ -237,6 +237,7 @@ export default function DocumentDetailPage() {
                         <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Type</th>
                         <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Severity</th>
                         <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Status</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Confidence</th>
                         <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Due Date</th>
                         <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Evidence</th>
                         <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Actions</th>
@@ -248,10 +249,19 @@ export default function DocumentDetailPage() {
                           <td className="max-w-xl px-4 py-3 text-text-primary">{item.obligation_text}</td>
                           <td className="px-4 py-3 text-text-secondary">{item.obligation_type}</td>
                           <td className="px-4 py-3">
-                            <SeverityBadge severity={item.severity} />
+                            <SeverityBadge severity={item.severity} llmSeverity={item.llm_severity} />
                           </td>
                           <td className="px-4 py-3">
                             <StatusBadge status={item.status} />
+                          </td>
+                          <td className="px-4 py-3 text-text-secondary">
+                            {item.llm_quality_confidence != null ? (
+                              <span title={`System: ${item.system_confidence}, LLM quality: ${item.llm_quality_confidence}`}>
+                                {item.llm_quality_confidence}
+                              </span>
+                            ) : (
+                              item.system_confidence
+                            )}
                           </td>
                           <td className="px-4 py-3 text-text-secondary">{item.due_date ? item.due_date.slice(0, 10) : "—"}</td>
                           <td className="px-4 py-3">
@@ -328,12 +338,20 @@ export default function DocumentDetailPage() {
                           <td className="max-w-xl px-4 py-3 text-text-primary">{item.risk_text}</td>
                           <td className="px-4 py-3 text-text-secondary">{item.risk_type}</td>
                           <td className="px-4 py-3">
-                            <SeverityBadge severity={item.severity} />
+                            <SeverityBadge severity={item.severity} llmSeverity={item.llm_severity} />
                           </td>
                           <td className="px-4 py-3">
                             <StatusBadge status={item.status} />
                           </td>
-                          <td className="px-4 py-3 text-text-secondary">{item.system_confidence}</td>
+                          <td className="px-4 py-3 text-text-secondary">
+                            {item.llm_quality_confidence != null ? (
+                              <span title={`System: ${item.system_confidence}, LLM quality: ${item.llm_quality_confidence}`}>
+                                {item.llm_quality_confidence}
+                              </span>
+                            ) : (
+                              item.system_confidence
+                            )}
+                          </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap gap-2">
                               <button

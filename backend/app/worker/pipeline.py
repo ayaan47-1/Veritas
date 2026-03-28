@@ -10,6 +10,7 @@ from .tasks.classify import classify_document
 from .tasks.extract import extract_entities, extract_obligations, extract_risks
 from .tasks.verify import verify_extractions
 from .tasks.score import score_extractions
+from .tasks.rescore import rescore_with_llm
 from .tasks.notify import persist_final_status, emit_notifications
 
 
@@ -20,10 +21,10 @@ from .tasks.notify import persist_final_status, emit_notifications
 )
 async def process_document(
     ctx: inngest.Context,
-    step: inngest.Step,
 ) -> None:
     """Orchestrator — runs the full 11-stage pipeline with per-step tracking."""
     document_id: str = ctx.event.data["document_id"]
+    step = ctx.step
 
     await step.run("1-parse", lambda: parse_document(document_id))
     await step.run("2-ocr", lambda: ocr_scanned_pages(document_id))
@@ -35,5 +36,6 @@ async def process_document(
     await step.run("8-extract-risks", lambda: extract_risks(document_id))
     await step.run("9-verify", lambda: verify_extractions(document_id))
     await step.run("10-score", lambda: score_extractions(document_id))
+    await step.run("10b-rescore", lambda: rescore_with_llm(document_id))
     await step.run("11-persist", lambda: persist_final_status(document_id))
     await step.run("12-notify", lambda: emit_notifications(document_id))

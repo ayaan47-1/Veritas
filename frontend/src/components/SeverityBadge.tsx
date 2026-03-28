@@ -23,13 +23,24 @@ const SEVERITY_STYLE: Record<Severity, { background: string; color: string; bord
   },
 };
 
-export default function SeverityBadge({ severity }: { severity: Severity }) {
+export default function SeverityBadge({
+  severity,
+  llmSeverity,
+}: {
+  severity: Severity;
+  llmSeverity?: Severity | null;
+}) {
+  const effectiveSeverity = llmSeverity ?? severity;
+  const isRevised = llmSeverity != null && llmSeverity !== severity;
+
   return (
     <span
-      style={SEVERITY_STYLE[severity]}
-      className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium uppercase tracking-wide"
+      style={SEVERITY_STYLE[effectiveSeverity]}
+      className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium uppercase tracking-wide"
+      title={isRevised ? `Revised by LLM from ${severity}` : undefined}
     >
-      {severity}
+      {effectiveSeverity}
+      {isRevised ? <span className="text-[0.6rem] opacity-60">*</span> : null}
     </span>
   );
 }
