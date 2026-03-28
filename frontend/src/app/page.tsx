@@ -134,7 +134,7 @@ export default function Home() {
                 key={asset.id}
                 className="relative rounded-2xl border border-border bg-surface p-5 shadow-sm transition-colors hover:border-border-strong hover:bg-bg-subtle"
               >
-                <Link href={`/obligations?asset_id=${asset.id}`} className="absolute inset-0 rounded-2xl" aria-label={asset.name} />
+                <Link href={`/assets/${asset.id}/documents`} className="absolute inset-0 rounded-2xl" aria-label={asset.name} />
                 <h2 className="text-base font-medium text-text-primary">{asset.name}</h2>
                 <p className="mt-1.5 text-sm text-text-secondary">{asset.description || "No description provided."}</p>
 

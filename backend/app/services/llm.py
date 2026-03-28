@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from typing import Any
 
 import litellm
 
@@ -12,18 +14,70 @@ class LLMResponseError(RuntimeError):
     """Raised when an LLM response cannot be parsed into the expected shape."""
 
 
-def llm_completion(model: str, prompt: str) -> str:
+def _normalize_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                text = item.get("text", "")
+                if isinstance(text, str):
+                    parts.append(text)
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(parts).strip()
+    return str(content).strip()
+
+
+def llm_completion(model: str, prompt: str, *, prefer_json_object: bool = True) -> str:
     """Call LiteLLM and return the raw content string."""
-    response = litellm.completion(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0,
-        response_format={"type": "json_object"},
-    )
+    kwargs = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0,
+    }
+    if prefer_json_object:
+        kwargs["response_format"] = {"type": "json_object"}
+
+    response = litellm.completion(**kwargs)
     content = response.choices[0].message.content
-    if not content or not content.strip():
+    normalized = _normalize_content(content)
+    if not normalized:
         raise LLMResponseError("LLM returned empty content")
-    return content.strip()
+    return normalized
+
+
+def _strip_code_fences(raw: str) -> str:
+    text = raw.strip()
+    if not text.startswith("```"):
+        return text
+    text = re.sub(r"^```(?:json|JSON)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    return text.strip()
+
+
+def _recover_json(raw: str) -> Any:
+    cleaned = _strip_code_fences(raw)
+    decoder = json.JSONDecoder()
+
+    try:
+        value, _idx = decoder.raw_decode(cleaned)
+        return value
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    for idx, char in enumerate(cleaned):
+        if char not in ("{", "["):
+            continue
+        snippet = cleaned[idx:]
+        try:
+            value, _end = decoder.raw_decode(snippet)
+            return value
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+    raise LLMResponseError("Invalid JSON: unable to recover JSON payload")
 
 
 def parse_json_dict(raw: str) -> dict:
@@ -31,7 +85,10 @@ def parse_json_dict(raw: str) -> dict:
     try:
         data = json.loads(raw)
     except (json.JSONDecodeError, TypeError) as exc:
-        raise LLMResponseError(f"Invalid JSON: {exc}") from exc
+        try:
+            data = _recover_json(raw)
+        except LLMResponseError:
+            raise LLMResponseError(f"Invalid JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise LLMResponseError(f"Expected JSON object, got {type(data).__name__}")
     return data
@@ -46,7 +103,10 @@ def parse_json_list(raw: str) -> list[dict]:
     try:
         data = json.loads(raw)
     except (json.JSONDecodeError, TypeError) as exc:
-        raise LLMResponseError(f"Invalid JSON: {exc}") from exc
+        try:
+            data = _recover_json(raw)
+        except LLMResponseError:
+            raise LLMResponseError(f"Invalid JSON: {exc}") from exc
 
     if isinstance(data, dict):
         # Unwrap common wrapper keys
@@ -65,11 +125,11 @@ def parse_json_list(raw: str) -> list[dict]:
 
 def classify(model: str, prompt: str) -> dict:
     """Run classification LLM call. Matches ``call_classification_llm`` signature."""
-    raw = llm_completion(model, prompt)
+    raw = llm_completion(model, prompt, prefer_json_object=True)
     return parse_json_dict(raw)
 
 
 def extract(model: str, prompt: str, stage: str) -> list[dict]:
     """Run extraction LLM call. Matches ``call_extract_llm`` signature."""
-    raw = llm_completion(model, prompt)
+    raw = llm_completion(model, prompt, prefer_json_object=False)
     return parse_json_list(raw)

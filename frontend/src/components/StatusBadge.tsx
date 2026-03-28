@@ -28,7 +28,7 @@ export default function StatusBadge({ status }: { status: Status }) {
   return (
     <span
       style={STATUS_STYLE[status]}
-      className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium tracking-wide"
+      className="inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-medium uppercase tracking-wide leading-none"
     >
       {STATUS_LABEL[status]}
     </span>

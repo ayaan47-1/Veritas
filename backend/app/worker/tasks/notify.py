@@ -7,6 +7,8 @@ from ...database import SessionLocal
 from ...models import (
     Document,
     DocumentPage,
+    ExtractionRun,
+    ExtractionStatus,
     NotificationChannel,
     NotificationEvent,
     NotificationEventType,
@@ -38,7 +40,16 @@ def persist_final_status(document_id: str) -> None:
             )
             .count()
         )
-        if failed_pages > 0:
+        failed_extraction_runs = (
+            db.query(ExtractionRun)
+            .filter(
+                ExtractionRun.document_id == document.id,
+                ExtractionRun.status == ExtractionStatus.failed,
+            )
+            .count()
+        )
+
+        if failed_pages > 0 or failed_extraction_runs > 0:
             document.parse_status = ParseStatus.partially_processed
         else:
             document.parse_status = ParseStatus.complete
