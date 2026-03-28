@@ -6,11 +6,27 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..auth.deps import require_admin, require_asset_scope, require_authenticated
 from ..database import get_db
-from ..models import Asset, AuditAction, AuditLog, Document, DocumentType, Obligation, ParseStatus, Risk, UserAssetAssignment
+from ..models import (
+    Asset,
+    AuditAction,
+    AuditLog,
+    Document,
+    DocumentType,
+    EntityMention,
+    ExtractionRun,
+    Obligation,
+    ObligationContradiction,
+    ObligationReview,
+    ParseStatus,
+    Risk,
+    RiskReview,
+    UserAssetAssignment,
+)
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -79,6 +95,62 @@ def create_asset(payload: AssetCreateIn, db: Session = Depends(get_db)):
     db.add(audit)
     db.commit()
     return _serialize_asset(asset)
+
+
+@router.delete("/{asset_id}", dependencies=[Depends(require_admin)])
+def delete_asset(asset_id: UUID, db: Session = Depends(get_db)):
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    document_ids = [row.id for row in db.query(Document).filter(Document.asset_id == asset_id).all()]
+    if document_ids:
+        obligation_ids = [row.id for row in db.query(Obligation).filter(Obligation.document_id.in_(document_ids)).all()]
+        risk_ids = [row.id for row in db.query(Risk).filter(Risk.document_id.in_(document_ids)).all()]
+
+        contradiction_filters = []
+        if obligation_ids:
+            contradiction_filters.extend(
+                [
+                    ObligationContradiction.obligation_a_id.in_(obligation_ids),
+                    ObligationContradiction.obligation_b_id.in_(obligation_ids),
+                ]
+            )
+        if risk_ids:
+            contradiction_filters.append(ObligationContradiction.risk_id.in_(risk_ids))
+        if contradiction_filters:
+            db.query(ObligationContradiction).filter(or_(*contradiction_filters)).delete(synchronize_session=False)
+
+        if obligation_ids:
+            db.query(ObligationReview).filter(ObligationReview.obligation_id.in_(obligation_ids)).delete(
+                synchronize_session=False
+            )
+            db.query(Obligation).filter(Obligation.id.in_(obligation_ids)).delete(synchronize_session=False)
+
+        if risk_ids:
+            db.query(RiskReview).filter(RiskReview.risk_id.in_(risk_ids)).delete(synchronize_session=False)
+            db.query(Risk).filter(Risk.id.in_(risk_ids)).delete(synchronize_session=False)
+
+        db.query(EntityMention).filter(EntityMention.document_id.in_(document_ids)).delete(synchronize_session=False)
+        db.query(ExtractionRun).filter(ExtractionRun.document_id.in_(document_ids)).delete(synchronize_session=False)
+        db.query(Document).filter(Document.id.in_(document_ids)).delete(synchronize_session=False)
+
+    db.query(UserAssetAssignment).filter(UserAssetAssignment.asset_id == asset_id).delete(synchronize_session=False)
+    db.delete(asset)
+    db.add(
+        AuditLog(
+            id=uuid.uuid4(),
+            table_name="assets",
+            record_id=asset_id,
+            action=AuditAction.delete,
+            old_values={"name": asset.name},
+            new_values=None,
+            performed_by=None,
+            performed_at=datetime.now(tz=timezone.utc),
+        )
+    )
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/{asset_id}", dependencies=[Depends(require_asset_scope("asset_id"))])

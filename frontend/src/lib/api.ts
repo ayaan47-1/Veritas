@@ -83,6 +83,10 @@ export async function createAsset(
   });
 }
 
+export async function deleteAsset(getToken: GetTokenFn, assetId: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/assets/${assetId}`, getToken, { method: "DELETE" });
+}
+
 export async function deleteDocument(getToken: GetTokenFn, documentId: string): Promise<{ ok: boolean }> {
   return apiFetch<{ ok: boolean }>(`/documents/${documentId}`, getToken, { method: "DELETE" });
 }
