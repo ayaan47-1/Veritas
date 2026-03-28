@@ -146,19 +146,18 @@ export default function DocumentDetailPage() {
   const totalPages = status?.total_pages ?? document?.total_pages ?? null;
 
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-10">
+    <main className="min-h-screen bg-bg px-6 py-10">
       <div className="mx-auto max-w-7xl">
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">P1 Screen</p>
-            <h1 className="text-2xl font-semibold text-slate-900">{document?.source_name ?? "Document Detail"}</h1>
-            <p className="text-sm text-slate-600">Document ID: {documentId}</p>
+            <h1 className="font-serif text-2xl text-text-primary">{document?.source_name ?? "Document Detail"}</h1>
+            <p className="mt-1 font-mono text-xs text-text-tertiary">{documentId}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {document ? (
               <Link
                 href={`/assets/${document.asset_id}/documents`}
-                className="rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700"
+                className="rounded-full border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary"
               >
                 Back to Documents
               </Link>
@@ -166,7 +165,7 @@ export default function DocumentDetailPage() {
             {document ? (
               <Link
                 href={`/obligations?asset_id=${document.asset_id}`}
-                className="rounded-full bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white"
+                className="rounded-full bg-brand px-3 py-1.5 text-sm font-medium text-bg"
               >
                 Asset Queue
               </Link>
@@ -175,47 +174,53 @@ export default function DocumentDetailPage() {
         </header>
 
         {status ? (
-          <section className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Processing Status (polling every 3s)</p>
+          <section className="mb-5 rounded-2xl border border-border bg-surface p-4 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wider text-text-tertiary">Processing Status — polling every 3s</p>
             <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
               <StatusBadge status={status.parse_status === "complete" ? "confirmed" : status.parse_status === "failed" ? "rejected" : "needs_review"} />
-              <span className="text-slate-700">parse_status: {status.parse_status}</span>
-              <span className="text-slate-700">pages_processed: {status.pages_processed}</span>
-              <span className="text-slate-700">pages_failed: {status.pages_failed}</span>
-              <span className="text-slate-700">total_pages: {totalPages ?? "—"}</span>
+              <span className="text-text-secondary">parse_status: <span className="font-mono text-text-primary">{status.parse_status}</span></span>
+              <span className="text-text-secondary">pages_processed: <span className="font-mono text-text-primary">{status.pages_processed}</span></span>
+              <span className="text-text-secondary">pages_failed: <span className="font-mono text-text-primary">{status.pages_failed}</span></span>
+              <span className="text-text-secondary">total_pages: <span className="font-mono text-text-primary">{totalPages ?? "—"}</span></span>
             </div>
           </section>
         ) : null}
 
-        {isLoading ? <p className="text-sm text-slate-600">Loading document detail...</p> : null}
-        {error ? <p className="mb-4 rounded-xl bg-rose-100 px-4 py-3 text-sm font-medium text-rose-700">{error}</p> : null}
+        {isLoading ? <p className="text-sm text-text-secondary">Loading document detail...</p> : null}
+        {error ? (
+          <p className="mb-4 rounded-xl bg-danger-subtle px-4 py-3 text-sm font-medium text-danger">{error}</p>
+        ) : null}
 
         {!isLoading && !error && document ? (
           <>
-            <section className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <section className="mb-5 rounded-2xl border border-border bg-surface p-4 shadow-sm">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <p className="text-sm text-slate-700">Doc Type: <span className="font-semibold">{document.doc_type}</span></p>
-                <p className="text-sm text-slate-700">Parse Status: <span className="font-semibold">{document.parse_status}</span></p>
-                <p className="text-sm text-slate-700">Scanned Pages: <span className="font-semibold">{document.scanned_page_count}</span></p>
-                <p className="text-sm text-slate-700">Uploaded: <span className="font-semibold">{document.uploaded_at ? document.uploaded_at.replace("T", " ").slice(0, 19) : "—"}</span></p>
+                <p className="text-sm text-text-secondary">Doc Type: <span className="font-medium text-text-primary">{document.doc_type}</span></p>
+                <p className="text-sm text-text-secondary">Parse Status: <span className="font-medium text-text-primary">{document.parse_status}</span></p>
+                <p className="text-sm text-text-secondary">Scanned Pages: <span className="font-medium text-text-primary">{document.scanned_page_count}</span></p>
+                <p className="text-sm text-text-secondary">Uploaded: <span className="font-medium text-text-primary">{document.uploaded_at ? document.uploaded_at.replace("T", " ").slice(0, 19) : "—"}</span></p>
               </div>
             </section>
 
-            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-200 px-4 py-3">
+            <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+              <div className="border-b border-border px-4 py-3">
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => setActiveTab("obligations")}
-                    className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                      activeTab === "obligations" ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-700"
+                    className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                      activeTab === "obligations"
+                        ? "bg-brand text-bg"
+                        : "border border-border text-text-secondary hover:text-text-primary"
                     }`}
                   >
                     Obligations ({obligations.length})
                   </button>
                   <button
                     onClick={() => setActiveTab("risks")}
-                    className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                      activeTab === "risks" ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-700"
+                    className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                      activeTab === "risks"
+                        ? "bg-brand text-bg"
+                        : "border border-border text-text-secondary hover:text-text-primary"
                     }`}
                   >
                     Risks ({risks.length})
@@ -226,33 +231,34 @@ export default function DocumentDetailPage() {
               {activeTab === "obligations" ? (
                 <div>
                   <table className="w-full border-collapse text-sm">
-                    <thead className="bg-slate-900 text-left text-xs uppercase tracking-wide text-slate-200">
-                      <tr>
-                        <th className="px-4 py-3">Obligation</th>
-                        <th className="px-4 py-3">Type</th>
-                        <th className="px-4 py-3">Severity</th>
-                        <th className="px-4 py-3">Status</th>
-                        <th className="px-4 py-3">Due Date</th>
-                        <th className="px-4 py-3">Evidence</th>
-                        <th className="px-4 py-3">Actions</th>
+                    <thead>
+                      <tr className="border-b border-border bg-bg-subtle">
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Obligation</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Type</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Severity</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Status</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Due Date</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Evidence</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {obligations.map((item) => (
-                        <tr key={item.id} className="border-t border-slate-100 align-top">
-                          <td className="max-w-xl px-4 py-3 text-slate-900">{item.obligation_text}</td>
-                          <td className="px-4 py-3 text-slate-600">{item.obligation_type}</td>
+                        <tr key={item.id} className="border-t border-border align-top transition-colors hover:bg-bg-subtle">
+                          <td className="max-w-xl px-4 py-3 text-text-primary">{item.obligation_text}</td>
+                          <td className="px-4 py-3 text-text-secondary">{item.obligation_type}</td>
                           <td className="px-4 py-3">
                             <SeverityBadge severity={item.severity} />
                           </td>
                           <td className="px-4 py-3">
                             <StatusBadge status={item.status} />
                           </td>
-                          <td className="px-4 py-3 text-slate-600">{item.due_date ? item.due_date.slice(0, 10) : "—"}</td>
+                          <td className="px-4 py-3 text-text-secondary">{item.due_date ? item.due_date.slice(0, 10) : "—"}</td>
                           <td className="px-4 py-3">
                             <Link
                               href={`/obligations/${item.id}`}
-                              className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                              style={{ background: "var(--info-subtle)", color: "var(--info)", borderColor: "var(--info)" }}
+                              className="rounded-full border px-2.5 py-1 text-xs font-medium"
                             >
                               View
                             </Link>
@@ -265,7 +271,8 @@ export default function DocumentDetailPage() {
                                   setRiskTarget(null);
                                   setObligationTarget(item);
                                 }}
-                                className="rounded-full bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white"
+                                style={{ background: "var(--success-subtle)", color: "var(--success)", borderColor: "var(--success)" }}
+                                className="rounded-full border px-2.5 py-1 text-xs font-medium"
                               >
                                 Approve
                               </button>
@@ -275,7 +282,8 @@ export default function DocumentDetailPage() {
                                   setRiskTarget(null);
                                   setObligationTarget(item);
                                 }}
-                                className="rounded-full border border-rose-300 bg-white px-2.5 py-1 text-xs font-semibold text-rose-700"
+                                style={{ background: "var(--danger-subtle)", color: "var(--danger)", borderColor: "var(--danger)" }}
+                                className="rounded-full border px-2.5 py-1 text-xs font-medium"
                               >
                                 Reject
                               </button>
@@ -286,7 +294,7 @@ export default function DocumentDetailPage() {
                     </tbody>
                   </table>
                   {obligationsNextCursor ? (
-                    <div className="border-t border-slate-100 p-3">
+                    <div className="border-t border-border p-3">
                       <button
                         onClick={() => {
                           if (!document) {
@@ -294,7 +302,7 @@ export default function DocumentDetailPage() {
                           }
                           void loadObligations(document, obligationsNextCursor, true);
                         }}
-                        className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                        className="rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:text-text-primary"
                       >
                         Load More
                       </button>
@@ -304,28 +312,28 @@ export default function DocumentDetailPage() {
               ) : (
                 <div>
                   <table className="w-full border-collapse text-sm">
-                    <thead className="bg-slate-900 text-left text-xs uppercase tracking-wide text-slate-200">
-                      <tr>
-                        <th className="px-4 py-3">Risk</th>
-                        <th className="px-4 py-3">Type</th>
-                        <th className="px-4 py-3">Severity</th>
-                        <th className="px-4 py-3">Status</th>
-                        <th className="px-4 py-3">Confidence</th>
-                        <th className="px-4 py-3">Actions</th>
+                    <thead>
+                      <tr className="border-b border-border bg-bg-subtle">
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Risk</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Type</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Severity</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Status</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Confidence</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {risks.map((item) => (
-                        <tr key={item.id} className="border-t border-slate-100 align-top">
-                          <td className="max-w-xl px-4 py-3 text-slate-900">{item.risk_text}</td>
-                          <td className="px-4 py-3 text-slate-600">{item.risk_type}</td>
+                        <tr key={item.id} className="border-t border-border align-top transition-colors hover:bg-bg-subtle">
+                          <td className="max-w-xl px-4 py-3 text-text-primary">{item.risk_text}</td>
+                          <td className="px-4 py-3 text-text-secondary">{item.risk_type}</td>
                           <td className="px-4 py-3">
                             <SeverityBadge severity={item.severity} />
                           </td>
                           <td className="px-4 py-3">
                             <StatusBadge status={item.status} />
                           </td>
-                          <td className="px-4 py-3 text-slate-600">{item.system_confidence}</td>
+                          <td className="px-4 py-3 text-text-secondary">{item.system_confidence}</td>
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap gap-2">
                               <button
@@ -334,7 +342,8 @@ export default function DocumentDetailPage() {
                                   setObligationTarget(null);
                                   setRiskTarget(item);
                                 }}
-                                className="rounded-full bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white"
+                                style={{ background: "var(--success-subtle)", color: "var(--success)", borderColor: "var(--success)" }}
+                                className="rounded-full border px-2.5 py-1 text-xs font-medium"
                               >
                                 Approve
                               </button>
@@ -344,7 +353,8 @@ export default function DocumentDetailPage() {
                                   setObligationTarget(null);
                                   setRiskTarget(item);
                                 }}
-                                className="rounded-full border border-rose-300 bg-white px-2.5 py-1 text-xs font-semibold text-rose-700"
+                                style={{ background: "var(--danger-subtle)", color: "var(--danger)", borderColor: "var(--danger)" }}
+                                className="rounded-full border px-2.5 py-1 text-xs font-medium"
                               >
                                 Reject
                               </button>
@@ -355,7 +365,7 @@ export default function DocumentDetailPage() {
                     </tbody>
                   </table>
                   {risksNextCursor ? (
-                    <div className="border-t border-slate-100 p-3">
+                    <div className="border-t border-border p-3">
                       <button
                         onClick={() => {
                           if (!document) {
@@ -363,7 +373,7 @@ export default function DocumentDetailPage() {
                           }
                           void loadRisks(document, risksNextCursor, true);
                         }}
-                        className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                        className="rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:text-text-primary"
                       >
                         Load More
                       </button>
@@ -380,6 +390,14 @@ export default function DocumentDetailPage() {
         open={Boolean(obligationTarget || riskTarget)}
         title={obligationTarget?.obligation_text ?? riskTarget?.risk_text ?? ""}
         initialDecision={initialDecision}
+        itemType={riskTarget ? "risk" : "obligation"}
+        initialValues={
+          riskTarget
+            ? { text: riskTarget.risk_text, severity: riskTarget.severity, risk_type: riskTarget.risk_type }
+            : obligationTarget
+              ? { text: obligationTarget.obligation_text, severity: obligationTarget.severity }
+              : undefined
+        }
         onClose={() => {
           setObligationTarget(null);
           setRiskTarget(null);

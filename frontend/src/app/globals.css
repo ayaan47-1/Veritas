@@ -1,25 +1,178 @@
 @import "tailwindcss";
 
+/* ─── Light mode tokens (default) ─── */
 :root {
-  --background: #f1f5f9;
-  --foreground: #0f172a;
-  --surface: #ffffff;
-  --surface-muted: #e2e8f0;
-  --brand: #0e7490;
-  --danger: #be123c;
-  --font-space-grotesk: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
-  --font-jetbrains-mono: "Menlo", "Monaco", "Courier New", monospace;
+  --bg:               #F0EAD8;
+  --bg-subtle:        #E9E2CE;
+  --surface:          #FDFAF4;
+  --surface-elevated: #FDFAF4;
+  --border:           #DDD7C8;
+  --border-strong:    #C9C2B0;
+
+  --text-primary:     #1C1814;
+  --text-secondary:   #6B6455;
+  --text-tertiary:    #9E9485;
+
+  --brand:            #1E293B;
+
+  /* Priority — light greens, yellows, reds */
+  --success:          #15803D;
+  --success-subtle:   #D1FAE5;
+
+  --accent:           #854D0E;
+  --accent-subtle:    #FEF9C3;
+
+  --warning:          #C2410C;
+  --warning-subtle:   #FFEDD5;
+
+  --danger:           #B91C1C;
+  --danger-subtle:    #FEE2E2;
+
+  /* Info — blues for viewing/navigation actions */
+  --info:             #1D4ED8;
+  --info-subtle:      #EFF6FF;
 }
 
+/* ─── OS-level dark mode (respects system preference by default) ─── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:               #17140E;
+    --bg-subtle:        #1E1A13;
+    --surface:          #262018;
+    --surface-elevated: #2E2820;
+    --border:           #352E22;
+    --border-strong:    #4A4135;
+
+    --text-primary:     #F5EFE3;
+    --text-secondary:   #A89D8C;
+    --text-tertiary:    #6B6055;
+
+    --brand:            #EDE8DC;
+
+    --success:          #4ADE80;
+    --success-subtle:   #052E16;
+
+    --accent:           #FBBF24;
+    --accent-subtle:    #3F2B00;
+
+    --warning:          #FB923C;
+    --warning-subtle:   #431407;
+
+    --danger:           #F87171;
+    --danger-subtle:    #450A0A;
+
+    --info:             #60A5FA;
+    --info-subtle:      #0C1A38;
+  }
+}
+
+/* ─── Manual light mode (overrides OS dark preference) ─── */
+[data-theme="light"] {
+  --bg:               #F0EAD8;
+  --bg-subtle:        #E9E2CE;
+  --surface:          #FDFAF4;
+  --surface-elevated: #FDFAF4;
+  --border:           #DDD7C8;
+  --border-strong:    #C9C2B0;
+
+  --text-primary:     #1C1814;
+  --text-secondary:   #6B6455;
+  --text-tertiary:    #9E9485;
+
+  --brand:            #1E293B;
+
+  --success:          #15803D;
+  --success-subtle:   #D1FAE5;
+
+  --accent:           #854D0E;
+  --accent-subtle:    #FEF9C3;
+
+  --warning:          #C2410C;
+  --warning-subtle:   #FFEDD5;
+
+  --danger:           #B91C1C;
+  --danger-subtle:    #FEE2E2;
+
+  --info:             #1D4ED8;
+  --info-subtle:      #EFF6FF;
+}
+
+/* ─── Manual dark mode toggle ─── */
+[data-theme="dark"] {
+  --bg:               #17140E;
+  --bg-subtle:        #1E1A13;
+  --surface:          #262018;
+  --surface-elevated: #2E2820;
+  --border:           #352E22;
+  --border-strong:    #4A4135;
+
+  --text-primary:     #F5EFE3;
+  --text-secondary:   #A89D8C;
+  --text-tertiary:    #6B6055;
+
+  --brand:            #EDE8DC;
+
+  --success:          #4ADE80;
+  --success-subtle:   #052E16;
+
+  --accent:           #FBBF24;
+  --accent-subtle:    #3F2B00;
+
+  --warning:          #FB923C;
+  --warning-subtle:   #431407;
+
+  --danger:           #F87171;
+  --danger-subtle:    #450A0A;
+
+  --info:             #60A5FA;
+  --info-subtle:      #0C1A38;
+}
+
+/* ─── Tailwind v4 CSS-first theme registration ─── */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-space-grotesk);
-  --font-mono: var(--font-jetbrains-mono);
+  --color-bg:               var(--bg);
+  --color-bg-subtle:        var(--bg-subtle);
+  --color-surface:          var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-border:           var(--border);
+  --color-border-strong:    var(--border-strong);
+
+  --color-text-primary:     var(--text-primary);
+  --color-text-secondary:   var(--text-secondary);
+  --color-text-tertiary:    var(--text-tertiary);
+
+  --color-brand:            var(--brand);
+
+  --color-success:          var(--success);
+  --color-success-subtle:   var(--success-subtle);
+
+  --color-accent:           var(--accent);
+  --color-accent-subtle:    var(--accent-subtle);
+
+  --color-warning:          var(--warning);
+  --color-warning-subtle:   var(--warning-subtle);
+
+  --color-danger:           var(--danger);
+  --color-danger-subtle:    var(--danger-subtle);
+
+  --color-info:             var(--info);
+  --color-info-subtle:      var(--info-subtle);
+
+  --font-serif: var(--font-instrument-serif), Georgia, serif;
+  --font-sans:  Futura, "Futura PT", var(--font-jost), "Century Gothic", sans-serif;
+  --font-mono:  var(--font-jetbrains-mono), Menlo, monospace;
+}
+
+/* ─── Base styles ─── */
+html,
+body {
+  background-color: var(--bg);
+  color: var(--text-primary);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-space-grotesk), sans-serif;
+  font-family: var(--font-sans);
+  font-weight: 450;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }

@@ -8,8 +8,41 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import ReviewModal from "@/components/ReviewModal";
 import SeverityBadge from "@/components/SeverityBadge";
 import StatusBadge from "@/components/StatusBadge";
-import { getCurrentUser, getObligations, reviewObligation } from "@/lib/api";
-import type { CurrentUser, Obligation, ReviewDecision } from "@/lib/types";
+import { getAssets, getCurrentUser, getObligations, reviewObligation } from "@/lib/api";
+import type { Asset, CurrentUser, Obligation, ReviewDecision } from "@/lib/types";
+
+const SEVERITY_ORDER = { critical: 4, high: 3, medium: 2, low: 1 } as const;
+const STATUS_ORDER = { needs_review: 3, confirmed: 2, rejected: 1 } as const;
+
+type SortKey = "severity" | "status" | "due_date" | "obligation_type";
+
+function SortHeader({
+  label,
+  sortKey,
+  active,
+  dir,
+  onToggle,
+}: {
+  label: string;
+  sortKey: SortKey;
+  active: boolean;
+  dir: "asc" | "desc";
+  onToggle: (key: SortKey) => void;
+}) {
+  return (
+    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">
+      <button
+        onClick={() => onToggle(sortKey)}
+        className="flex items-center gap-1 hover:text-text-primary transition-colors"
+      >
+        {label}
+        <span className={active ? "text-text-primary" : "text-text-tertiary opacity-40"}>
+          {active && dir === "asc" ? "↑" : "↓"}
+        </span>
+      </button>
+    </th>
+  );
+}
 
 export default function ObligationsClientPage() {
   const { getToken } = useAuth();
@@ -17,36 +50,49 @@ export default function ObligationsClientPage() {
   const assetId = useMemo(() => searchParams.get("asset_id"), [searchParams]);
 
   const [user, setUser] = useState<CurrentUser | null>(null);
+  const [assets, setAssets] = useState<Asset[]>([]);
   const [items, setItems] = useState<Obligation[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reviewTarget, setReviewTarget] = useState<Obligation | null>(null);
   const [initialDecision, setInitialDecision] = useState<ReviewDecision>("approve");
+  const [sortKey, setSortKey] = useState<SortKey>("severity");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-  const loadPage = useCallback(
+  const selectedAsset = useMemo(() => assets.find((a) => a.id === assetId) ?? null, [assets, assetId]);
+
+  const loadAssets = useCallback(async () => {
+    try {
+      const [currentUser, response] = await Promise.all([getCurrentUser(getToken), getAssets(getToken)]);
+      setUser(currentUser);
+      setAssets(response.items);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load assets");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getToken]);
+
+  const loadObligations = useCallback(
     async (cursor: string | number, append: boolean) => {
-      if (!assetId) {
-        setError("Missing asset_id query parameter.");
-        setIsLoading(false);
-        return;
-      }
       try {
-        const [currentUser, obligations] = await Promise.all([
+        const [currentUser, response, assetResponse] = await Promise.all([
           getCurrentUser(getToken),
-          getObligations(getToken, { assetId, cursor, limit: 20 }),
+          getObligations(getToken, { assetId: assetId ?? undefined, cursor, limit: 100 }),
+          assets.length === 0 ? getAssets(getToken) : Promise.resolve(null),
         ]);
         setUser(currentUser);
-        setItems((prev) => (append ? [...prev, ...obligations.items] : obligations.items));
-        setNextCursor(obligations.next_cursor);
+        if (assetResponse) setAssets(assetResponse.items);
+        setItems((prev) => (append ? [...prev, ...response.items] : response.items));
+        setNextCursor(response.next_cursor);
       } catch (loadError) {
-        const message = loadError instanceof Error ? loadError.message : "Failed to load obligations";
-        setError(message);
+        setError(loadError instanceof Error ? loadError.message : "Failed to load obligations");
       } finally {
         setIsLoading(false);
       }
     },
-    [assetId, getToken],
+    [assetId, assets.length, getToken],
   );
 
   useEffect(() => {
@@ -54,83 +100,129 @@ export default function ObligationsClientPage() {
     setNextCursor(null);
     setError(null);
     setIsLoading(true);
-    void loadPage(0, false);
-  }, [loadPage]);
+    if (!assetId) {
+      void loadAssets();
+    } else {
+      void loadObligations(0, false);
+    }
+  }, [assetId, loadAssets, loadObligations]);
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  }
+
+  const sortedItems = useMemo(() => {
+    return [...items].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "severity") cmp = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
+      else if (sortKey === "status") cmp = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+      else if (sortKey === "due_date") cmp = (a.due_date ?? "").localeCompare(b.due_date ?? "");
+      else if (sortKey === "obligation_type") cmp = a.obligation_type.localeCompare(b.obligation_type);
+      return sortDir === "desc" ? -cmp : cmp;
+    });
+  }, [items, sortKey, sortDir]);
 
   async function submitReview(payload: {
     decision: ReviewDecision;
     reviewer_confidence: number;
     reason?: string;
   }) {
-    if (!reviewTarget || !user) {
-      throw new Error("Missing review context");
-    }
-    const response = await reviewObligation(getToken, reviewTarget.id, {
-      ...payload,
-      reviewer_id: user.id,
-    });
+    if (!reviewTarget || !user) throw new Error("Missing review context");
+    const response = await reviewObligation(getToken, reviewTarget.id, { ...payload, reviewer_id: user.id });
     setItems((prev) => prev.map((item) => (item.id === reviewTarget.id ? response.obligation : item)));
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-10">
+    <main className="min-h-screen bg-bg px-6 py-10">
       <div className="mx-auto max-w-7xl">
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">P0 Screen</p>
-            <h1 className="text-2xl font-semibold text-slate-900">Obligations Table</h1>
-            <p className="text-sm text-slate-600">Asset: {assetId ?? "not selected"}</p>
+            <h1 className="font-serif text-2xl text-text-primary">Obligations</h1>
+            <p className="mt-1 text-sm text-text-secondary">
+              {assetId ? (selectedAsset?.name ?? assetId) : "Select an asset to review obligations"}
+            </p>
           </div>
-          <div className="flex gap-2">
-            <Link href="/" className="rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700">
-              Assets
-            </Link>
-            <Link
-              href={assetId ? `/risks?asset_id=${assetId}` : "/risks"}
-              className="rounded-full bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white"
-            >
-              Risks
-            </Link>
-          </div>
+          {assetId ? (
+            <div className="flex gap-2">
+              <Link href="/obligations" className="rounded-full border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary">
+                ← All Assets
+              </Link>
+              <Link
+                href={`/risks?asset_id=${assetId}`}
+                className="rounded-full bg-brand px-3 py-1.5 text-sm font-medium text-bg"
+              >
+                Risks
+              </Link>
+            </div>
+          ) : null}
         </header>
 
-        {isLoading ? <p className="text-sm text-slate-600">Loading obligations...</p> : null}
-        {error ? <p className="mb-4 rounded-xl bg-rose-100 px-4 py-3 text-sm font-medium text-rose-700">{error}</p> : null}
+        {isLoading ? <p className="text-sm text-text-secondary">Loading...</p> : null}
+        {error ? (
+          <p className="mb-4 rounded-xl bg-danger-subtle px-4 py-3 text-sm font-medium text-danger">{error}</p>
+        ) : null}
 
-        {!isLoading && !error ? (
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        {/* Asset selection grid */}
+        {!isLoading && !error && !assetId ? (
+          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {assets.map((asset) => (
+              <article
+                key={asset.id}
+                className="relative rounded-2xl border border-border bg-surface p-5 shadow-sm transition-colors hover:border-border-strong hover:bg-bg-subtle"
+              >
+                <Link href={`/obligations?asset_id=${asset.id}`} className="absolute inset-0 rounded-2xl" aria-label={asset.name} />
+                <h2 className="text-base font-medium text-text-primary">{asset.name}</h2>
+                <p className="mt-1 text-sm text-text-secondary">{asset.description ?? "No description."}</p>
+                <div className="mt-4 flex gap-2 text-xs">
+                  <span
+                    style={{ background: "var(--info-subtle)", color: "var(--info)", borderColor: "var(--info)" }}
+                    className="rounded-full border px-2 py-1 font-medium"
+                  >
+                    {asset.obligation_count ?? "—"} obligations
+                  </span>
+                </div>
+              </article>
+            ))}
+          </section>
+        ) : null}
+
+        {/* Obligations table */}
+        {!isLoading && !error && assetId ? (
+          <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
             <table className="w-full border-collapse text-sm">
-              <thead className="bg-slate-900 text-left text-xs uppercase tracking-wide text-slate-200">
-                <tr>
-                  <th className="px-4 py-3">Obligation</th>
-                  <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3">Severity</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Due Date</th>
-                  <th className="px-4 py-3">Evidence</th>
-                  <th className="px-4 py-3">Actions</th>
+              <thead>
+                <tr className="border-b border-border bg-bg-subtle">
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Obligation</th>
+                  <SortHeader label="Type" sortKey="obligation_type" active={sortKey === "obligation_type"} dir={sortDir} onToggle={toggleSort} />
+                  <SortHeader label="Severity" sortKey="severity" active={sortKey === "severity"} dir={sortDir} onToggle={toggleSort} />
+                  <SortHeader label="Status" sortKey="status" active={sortKey === "status"} dir={sortDir} onToggle={toggleSort} />
+                  <SortHeader label="Due Date" sortKey="due_date" active={sortKey === "due_date"} dir={sortDir} onToggle={toggleSort} />
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Evidence</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
-                  <tr key={item.id} className="border-t border-slate-100 align-top">
-                    <td className="max-w-xl px-4 py-3 text-slate-900">
-                      <Link href={`/obligations/${item.id}`} className="underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700">
+                {sortedItems.map((item) => (
+                  <tr key={item.id} className="border-t border-border align-top transition-colors hover:bg-bg-subtle">
+                    <td className="max-w-xl px-4 py-3 text-text-primary">
+                      <Link href={`/obligations/${item.id}`} className="underline decoration-border underline-offset-4 hover:decoration-border-strong">
                         {item.obligation_text}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{item.obligation_type}</td>
-                    <td className="px-4 py-3">
-                      <SeverityBadge severity={item.severity} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={item.status} />
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{item.due_date ? item.due_date.slice(0, 10) : "—"}</td>
+                    <td className="px-4 py-3 text-text-secondary">{item.obligation_type}</td>
+                    <td className="px-4 py-3"><SeverityBadge severity={item.severity} /></td>
+                    <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
+                    <td className="px-4 py-3 text-text-secondary">{item.due_date ? item.due_date.slice(0, 10) : "—"}</td>
                     <td className="px-4 py-3">
                       <Link
                         href={`/obligations/${item.id}`}
-                        className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                        style={{ background: "var(--info-subtle)", color: "var(--info)", borderColor: "var(--info)" }}
+                        className="rounded-full border px-2.5 py-1 text-xs font-medium"
                       >
                         View
                       </Link>
@@ -138,20 +230,16 @@ export default function ObligationsClientPage() {
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
                         <button
-                          onClick={() => {
-                            setInitialDecision("approve");
-                            setReviewTarget(item);
-                          }}
-                          className="rounded-full bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white"
+                          onClick={() => { setInitialDecision("approve"); setReviewTarget(item); }}
+                          style={{ background: "var(--success-subtle)", color: "var(--success)", borderColor: "var(--success)" }}
+                          className="rounded-full border px-2.5 py-1 text-xs font-medium"
                         >
                           Approve
                         </button>
                         <button
-                          onClick={() => {
-                            setInitialDecision("reject");
-                            setReviewTarget(item);
-                          }}
-                          className="rounded-full border border-rose-300 bg-white px-2.5 py-1 text-xs font-semibold text-rose-700"
+                          onClick={() => { setInitialDecision("reject"); setReviewTarget(item); }}
+                          style={{ background: "var(--danger-subtle)", color: "var(--danger)", borderColor: "var(--danger)" }}
+                          className="rounded-full border px-2.5 py-1 text-xs font-medium"
                         >
                           Reject
                         </button>
@@ -163,10 +251,10 @@ export default function ObligationsClientPage() {
             </table>
 
             {nextCursor ? (
-              <div className="border-t border-slate-100 p-3">
+              <div className="border-t border-border p-3">
                 <button
-                  onClick={() => void loadPage(nextCursor, true)}
-                  className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                  onClick={() => void loadObligations(nextCursor, true)}
+                  className="rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:text-text-primary"
                 >
                   Load More
                 </button>
@@ -180,6 +268,8 @@ export default function ObligationsClientPage() {
         open={Boolean(reviewTarget)}
         title={reviewTarget?.obligation_text ?? ""}
         initialDecision={initialDecision}
+        itemType="obligation"
+        initialValues={reviewTarget ? { text: reviewTarget.obligation_text, severity: reviewTarget.severity } : undefined}
         onClose={() => setReviewTarget(null)}
         onSubmit={submitReview}
       />
