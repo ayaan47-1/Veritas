@@ -196,6 +196,10 @@ _STAGE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "risk_extraction": (
         "penalty",
         "damages",
+        "liquidated",
+        "indemnif",
+        "bond",
+        "insurance",
         "risk",
         "breach",
         "liable",
