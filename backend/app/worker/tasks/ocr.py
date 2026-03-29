@@ -22,7 +22,7 @@ def ocr_scanned_pages(document_id: str) -> None:
         if document.parse_status == ParseStatus.failed:
             return
 
-        if (document.scanned_page_count or 0) <= 0:
+        if document.mime_type != "application/pdf":
             return
 
         pages = (
@@ -32,10 +32,12 @@ def ocr_scanned_pages(document_id: str) -> None:
             .all()
         )
 
+        raw_settings = getattr(settings, "raw", {}) or {}
+        min_raw_chars = int(raw_settings.get("ocr", {}).get("min_raw_text_chars", 50))
         scanned_pages = [
             page
             for page in pages
-            if page.processing_status != PageProcessingStatus.failed and len((page.raw_text or "").strip()) < 50
+            if len((page.raw_text or "").strip()) < min_raw_chars or page.processing_status == PageProcessingStatus.failed
         ]
 
         for page in scanned_pages:
@@ -43,6 +45,7 @@ def ocr_scanned_pages(document_id: str) -> None:
                 ocr_text = ocr_pdf_page(document.file_path, page.page_number)
                 page.raw_text = ocr_text
                 page.text_source = TextSource.ocr
+                page.processing_status = PageProcessingStatus.pending
                 page.processing_error = None
                 db.add(page)
                 db.commit()

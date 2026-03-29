@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
 
-import { createAsset, getAssets, getCurrentUser, getObligations } from "@/lib/api";
+import { createAsset, deleteAsset, getAssets, getCurrentUser, getObligations } from "@/lib/api";
 import type { Asset, CurrentUser } from "@/lib/types";
 
 type AssetCard = Asset & { pendingReviews: number };
@@ -20,6 +20,7 @@ export default function Home() {
   const [newDescription, setNewDescription] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +90,20 @@ export default function Home() {
     }
   }
 
+  async function handleDeleteAsset(assetId: string) {
+    if (!confirm("Delete this asset and all associated documents and extracted data?")) return;
+    setDeletingAssetId(assetId);
+    setError(null);
+    try {
+      await deleteAsset(getToken, assetId);
+      setAssets((prev) => prev.filter((asset) => asset.id !== assetId));
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Could not delete asset");
+    } finally {
+      setDeletingAssetId(null);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-bg px-6 py-10">
       <div className="mx-auto max-w-6xl">
@@ -119,7 +134,7 @@ export default function Home() {
                 key={asset.id}
                 className="relative rounded-2xl border border-border bg-surface p-5 shadow-sm transition-colors hover:border-border-strong hover:bg-bg-subtle"
               >
-                <Link href={`/obligations?asset_id=${asset.id}`} className="absolute inset-0 rounded-2xl" aria-label={asset.name} />
+                <Link href={`/assets/${asset.id}/documents`} className="absolute inset-0 rounded-2xl" aria-label={asset.name} />
                 <h2 className="text-base font-medium text-text-primary">{asset.name}</h2>
                 <p className="mt-1.5 text-sm text-text-secondary">{asset.description || "No description provided."}</p>
 
@@ -135,12 +150,44 @@ export default function Home() {
                       {asset.document_count ?? 0} docs
                     </span>
                   </div>
-                  <Link
-                    href={`/assets/${asset.id}/documents`}
-                    className="relative z-10 rounded-full border border-border px-3 py-1 text-xs text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary"
-                  >
-                    Documents
-                  </Link>
+                  <div className="relative z-10 flex items-center gap-2">
+                    <Link
+                      href={`/assets/${asset.id}/documents`}
+                      className="rounded-full border border-border px-3 py-1 text-xs text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary"
+                    >
+                      Documents
+                    </Link>
+                    {currentUser?.role === "admin" ? (
+                      <button
+                        type="button"
+                        aria-label={`Delete ${asset.name}`}
+                        title={`Delete ${asset.name}`}
+                        onClick={() => void handleDeleteAsset(asset.id)}
+                        disabled={deletingAssetId === asset.id}
+                        className="rounded-full border p-1.5 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        style={{ borderColor: "var(--danger)", background: "var(--danger-subtle)", color: "var(--danger)" }}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 6h18" />
+                          <path d="M8 6V4h8v2" />
+                          <path d="M19 6l-1 14H6L5 6" />
+                          <path d="M10 11v6" />
+                          <path d="M14 11v6" />
+                        </svg>
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </article>
             ))}

@@ -130,6 +130,7 @@ def parse_document(document_id: str) -> None:
             return
 
         scanned_count = 0
+        failed_page_count = 0
         try:
             pdf = fitz.open(document.file_path)
         except Exception as exc:
@@ -188,9 +189,11 @@ def parse_document(document_id: str) -> None:
                     db.commit()
                 except Exception as exc:
                     db.rollback()
+                    failed_page_count += 1
                     _persist_failed_page(db, document.id, page_number, f"pdf_page_parse_failed: {exc}")
 
-        document.scanned_page_count = scanned_count
+        # If native parsing fails at page level, force OCR stage to try those pages.
+        document.scanned_page_count = max(scanned_count, failed_page_count)
         db.add(document)
         db.commit()
     finally:

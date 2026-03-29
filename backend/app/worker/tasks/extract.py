@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from difflib import SequenceMatcher
+import re
 import time
 import uuid
 
@@ -180,6 +181,116 @@ def _build_prompt(stage_name: str, chunk: Chunk, document: Document) -> str:
     )
 
 
+_STAGE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "obligation_extraction": (
+        "shall",
+        "must",
+        "required",
+        "within",
+        "deadline",
+        "deliver",
+        "submit",
+        "payment",
+        "comply",
+    ),
+    "risk_extraction": (
+        "penalty",
+        "damages",
+        "liquidated",
+        "indemnif",
+        "bond",
+        "insurance",
+        "risk",
+        "breach",
+        "liable",
+        "delay",
+        "default",
+        "terminate",
+        "non-compliance",
+    ),
+    "entity_extraction": (
+        "llc",
+        "inc",
+        "company",
+        "contractor",
+        "owner",
+        "party",
+        "city",
+        "county",
+        "address",
+    ),
+}
+
+
+def _token_set(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    union = len(a | b)
+    if union == 0:
+        return 0.0
+    return len(a & b) / union
+
+
+def _relevance_score(stage_name: str, text: str) -> float:
+    tokens = _token_set(text)
+    if not tokens:
+        return 0.0
+    keywords = _STAGE_KEYWORDS.get(stage_name, ())
+    if not keywords:
+        return min(1.0, len(tokens) / 200.0)
+    hit_count = sum(1 for keyword in keywords if keyword in tokens)
+    keyword_score = hit_count / max(1, len(keywords))
+    richness = min(1.0, len(tokens) / 200.0)
+    return (0.75 * keyword_score) + (0.25 * richness)
+
+
+def _select_chunks_for_stage(chunks: list[Chunk], stage_name: str, llm_cfg: dict) -> list[Chunk]:
+    selection_cfg = llm_cfg.get("chunk_selection", {}) if isinstance(llm_cfg, dict) else {}
+    max_chunks = int(selection_cfg.get("max_chunks_per_stage", 0) or 0)
+    if max_chunks <= 0 or max_chunks >= len(chunks):
+        return chunks
+
+    use_mmr = bool(selection_cfg.get("use_mmr", True))
+    lambda_mult = float(selection_cfg.get("mmr_lambda", 0.7))
+    lambda_mult = max(0.0, min(1.0, lambda_mult))
+
+    scored = [
+        {
+            "chunk": chunk,
+            "tokens": _token_set(chunk.text or ""),
+            "relevance": _relevance_score(stage_name, chunk.text or ""),
+        }
+        for chunk in chunks
+    ]
+    scored.sort(key=lambda item: item["relevance"], reverse=True)
+    if not use_mmr:
+        return [item["chunk"] for item in scored[:max_chunks]]
+
+    selected: list[dict] = []
+    remaining = scored.copy()
+    while remaining and len(selected) < max_chunks:
+        if not selected:
+            selected.append(remaining.pop(0))
+            continue
+
+        best_idx = 0
+        best_score = -1e9
+        for idx, candidate in enumerate(remaining):
+            max_similarity = max(_jaccard(candidate["tokens"], chosen["tokens"]) for chosen in selected)
+            mmr_score = (lambda_mult * candidate["relevance"]) - ((1.0 - lambda_mult) * max_similarity)
+            if mmr_score > best_score:
+                best_score = mmr_score
+                best_idx = idx
+        selected.append(remaining.pop(best_idx))
+
+    selected_ids = {item["chunk"].id for item in selected}
+    return [chunk for chunk in chunks if chunk.id in selected_ids]
+
+
 def _run_chunk_calls(
     *,
     chunks: list[Chunk],
@@ -196,7 +307,8 @@ def _run_chunk_calls(
     active_model_idx = 0
     active_model = models[0] if models else "gpt-4o"
 
-    for chunk in chunks:
+    ordered_chunks = _select_chunks_for_stage(chunks, stage_name, llm_cfg)
+    for chunk in ordered_chunks:
         chunk_done = False
         last_error: Exception | None = None
 

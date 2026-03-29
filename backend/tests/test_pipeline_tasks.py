@@ -8,7 +8,16 @@ import uuid
 
 
 
-from backend.app.models import Document, DocumentPage, PageProcessingStatus, ParseStatus, TextSource
+from backend.app.models import (
+    Document,
+    DocumentPage,
+    ExtractionRun,
+    ExtractionStage,
+    ExtractionStatus,
+    PageProcessingStatus,
+    ParseStatus,
+    TextSource,
+)
 from backend.app.services.chunking import ChunkSlice
 from backend.app.worker.tasks import chunk as chunk_task
 from backend.app.worker.tasks import notify as notify_task
@@ -55,6 +64,8 @@ class FakeQuery:
             return [self._session.document] if self._session.document else []
         if self._model in (parse_task.DocumentPage, ocr_task.DocumentPage, chunk_task.DocumentPage, notify_task.DocumentPage):
             return list(self._session.pages)
+        if self._model is notify_task.ExtractionRun:
+            return list(self._session.extraction_runs)
         if self._model is parse_task.TextSpan:
             return list(self._session.spans)
         if self._model in (parse_task.Chunk, chunk_task.Chunk):
@@ -84,6 +95,7 @@ class FakeSession:
         self.pages = pages or []
         self.spans = []
         self.chunks = []
+        self.extraction_runs: list[ExtractionRun] = []
 
     def query(self, model):
         return FakeQuery(self, model)
@@ -103,6 +115,10 @@ class FakeSession:
         if isinstance(obj, (parse_task.Chunk, chunk_task.Chunk)):
             if obj not in self.chunks:
                 self.chunks.append(obj)
+            return
+        if isinstance(obj, ExtractionRun):
+            if obj not in self.extraction_runs:
+                self.extraction_runs.append(obj)
             return
 
     def commit(self):
@@ -203,6 +219,46 @@ def test_parse_document_parses_pdf_pages_and_counts_scanned(monkeypatch):
     assert len(db.pages) == 2
     assert all(page.processing_status == PageProcessingStatus.pending for page in db.pages)
     assert len(db.spans) >= 1
+
+
+def test_parse_document_counts_failed_pages_for_ocr_fallback(monkeypatch):
+    document = _make_document("partial-parse.pdf", "/tmp/partial-parse.pdf")
+    db = FakeSession(document=document, pages=[])
+
+    class _FakePage:
+        def __init__(self, text: str):
+            self._text = text
+            self.rect = types.SimpleNamespace(width=612, height=792)
+
+        def get_text(self, mode: str):
+            if mode == "text":
+                return self._text
+            return {"blocks": []}
+
+    class _FakeDoc:
+        page_count = 2
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def load_page(self, idx: int):
+            if idx == 1:
+                raise ValueError("page parse failed")
+            return _FakePage("This page has enough extractable text to avoid scanned detection.")
+
+    monkeypatch.setattr(parse_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(parse_task, "update_parse_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(parse_task.fitz, "open", lambda *_args, **_kwargs: _FakeDoc())
+
+    parse_task.parse_document(document.id)
+
+    assert document.total_pages == 2
+    assert document.scanned_page_count == 1
+    assert len(db.pages) == 2
+    assert any(page.processing_status == PageProcessingStatus.failed for page in db.pages)
 
 
 def test_ocr_scanned_pages_isolates_page_failures(monkeypatch, tmp_path: Path):
@@ -306,3 +362,24 @@ def test_persist_final_status_sets_complete_or_partial(monkeypatch):
     notify_task.persist_final_status(doc_partial.id)
     assert doc_partial.parse_status == ParseStatus.partially_processed
 
+
+def test_persist_final_status_marks_partial_on_failed_extraction(monkeypatch):
+    document = _make_document("extract-fail.pdf", "/tmp/extract-fail.pdf", parse_status=ParseStatus.scoring)
+    pages = [_make_page(document.id, 1, "ok", PageProcessingStatus.processed)]
+    db = FakeSession(document=document, pages=pages)
+    db.extraction_runs.append(
+        ExtractionRun(
+            id=uuid.uuid4(),
+            document_id=document.id,
+            prompt_version_id=uuid.uuid4(),
+            model_used="test-model",
+            config_snapshot={},
+            stage=ExtractionStage.obligation_extraction,
+            status=ExtractionStatus.failed,
+        )
+    )
+
+    monkeypatch.setattr(notify_task, "SessionLocal", lambda: db)
+    notify_task.persist_final_status(document.id)
+
+    assert document.parse_status == ParseStatus.partially_processed

@@ -39,6 +39,12 @@ class TestParseJsonDict:
         with pytest.raises(LLMResponseError, match="Expected JSON object"):
             parse_json_dict('"just a string"')
 
+    def test_recovers_json_from_code_fence(self):
+        raw = """```json
+{"doc_type":"contract","confidence":0.92}
+```"""
+        assert parse_json_dict(raw) == {"doc_type": "contract", "confidence": 0.92}
+
 
 # ── parse_json_list ──────────────────────────────────────────────────
 
@@ -71,6 +77,10 @@ class TestParseJsonList:
     def test_rejects_invalid_json(self):
         with pytest.raises(LLMResponseError, match="Invalid JSON"):
             parse_json_list("{bad json")
+
+    def test_recovers_array_from_wrapped_text(self):
+        raw = "Model output:\\n```json\\n[{\"quote\":\"shall pay\"}]\\n```\\nThanks."
+        assert parse_json_list(raw) == [{"quote": "shall pay"}]
 
 
 # ── Integration tests (mock litellm.completion) ─────────────────────

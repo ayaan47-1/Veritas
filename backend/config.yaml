@@ -31,6 +31,14 @@ llm:
     - "claude-haiku-4-5-20251001"
   max_retries: 2
   retry_backoff_base: 2
+  chunk_selection:
+    # 0 means extract from all chunks. Set >0 to cap per extraction stage.
+    max_chunks_per_stage: 10
+    use_mmr: true
+    mmr_lambda: 0.7
+
+ocr:
+  min_raw_text_chars: 50
 
 scoring:
   weights:

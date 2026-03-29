@@ -365,3 +365,39 @@ def test_extract_risks_uses_stage_fallback_for_remaining_chunks(monkeypatch):
     assert run.stage == ExtractionStage.risk_extraction
     assert run.model_used == "fallback-model"
     assert run.status == ExtractionStatus.completed
+
+
+def test_extract_risks_honors_chunk_selection_limit(monkeypatch):
+    document = _make_document()
+    chunks = [
+        _make_chunk(document.id, 1, "Risk penalty delay default."),
+        _make_chunk(document.id, 2, "Another risk with liability language."),
+    ]
+    db = FakeSession(document=document, chunks=chunks)
+
+    def _fake_llm(*, model: str, prompt: str, stage: str):
+        if "penalty" in prompt.lower():
+            return [{"quote": "Risk A", "risk_type": "financial", "severity": "medium"}]
+        return [{"quote": "Risk B", "risk_type": "schedule", "severity": "high"}]
+
+    fake_settings = types.SimpleNamespace(
+        raw={
+            "llm": {
+                "primary_model": "primary-model",
+                "fallback_models": [],
+                "max_retries": 1,
+                "retry_backoff_base": 1,
+                "chunk_selection": {"max_chunks_per_stage": 1, "use_mmr": False},
+            }
+        }
+    )
+
+    monkeypatch.setattr(extract_task, "settings", fake_settings)
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    extract_task.extract_risks(document.id)
+
+    assert len(db.risks) == 1
