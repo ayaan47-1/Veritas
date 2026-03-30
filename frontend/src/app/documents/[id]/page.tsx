@@ -20,6 +20,34 @@ import {
 import type { CurrentUser, DocumentDetail, DocumentStatus, Obligation, ReviewDecision, Risk } from "@/lib/types";
 
 type ActiveTab = "obligations" | "risks";
+type PipelineStage =
+  | "uploaded"
+  | "parsing"
+  | "ocr"
+  | "chunking"
+  | "classification"
+  | "extraction"
+  | "verification"
+  | "scoring"
+  | "rescoring"
+  | "complete"
+  | "partially_processed"
+  | "failed";
+
+const STAGE_PROGRESS: Record<PipelineStage, number> = {
+  uploaded: 5,
+  parsing: 20,
+  ocr: 30,
+  chunking: 45,
+  classification: 60,
+  extraction: 72,
+  verification: 84,
+  scoring: 92,
+  rescoring: 96,
+  partially_processed: 100,
+  complete: 100,
+  failed: 100,
+};
 
 export default function DocumentDetailPage() {
   const { getToken } = useAuth();
@@ -144,6 +172,15 @@ export default function DocumentDetailPage() {
   }
 
   const totalPages = status?.total_pages ?? document?.total_pages ?? null;
+  const normalizedStage = status?.parse_status as PipelineStage | undefined;
+  const stageProgress = normalizedStage && normalizedStage in STAGE_PROGRESS ? STAGE_PROGRESS[normalizedStage] : 0;
+  const pageProgress =
+    status && status.total_pages && status.total_pages > 0
+      ? Math.round(((status.pages_processed + status.pages_failed) / status.total_pages) * 100)
+      : 0;
+  const rawProgress = Math.max(stageProgress, pageProgress);
+  const isTerminal = status?.parse_status === "complete" || status?.parse_status === "partially_processed" || status?.parse_status === "failed";
+  const progressPercent = isTerminal ? 100 : Math.min(rawProgress, 99);
 
   return (
     <main className="min-h-screen bg-bg px-6 py-10">
@@ -176,6 +213,27 @@ export default function DocumentDetailPage() {
         {status ? (
           <section className="mb-5 rounded-2xl border border-border bg-surface p-4 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wider text-text-tertiary">Processing Status — polling every 3s</p>
+            <div className="mt-3">
+              <div className="mb-1.5 flex items-center justify-between text-xs text-text-secondary">
+                <span>Job Progress</span>
+                <span className="font-mono text-text-primary">{progressPercent}%</span>
+              </div>
+              <div className="h-4 overflow-hidden rounded-full border border-border bg-bg-subtle">
+                <div
+                  className="h-full rounded-full shadow-sm transition-all duration-500"
+                  style={{
+                    width: `${progressPercent}%`,
+                    background: "linear-gradient(90deg, var(--warning) 0%, var(--accent) 55%, var(--brand) 100%)",
+                  }}
+                />
+              </div>
+              <p className="mt-1 text-xs text-text-secondary">
+                Pages complete:{" "}
+                <span className="font-mono text-text-primary">
+                  {status.pages_processed + status.pages_failed}/{status.total_pages ?? "—"}
+                </span>
+              </p>
+            </div>
             <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
               <StatusBadge status={status.parse_status === "complete" ? "confirmed" : status.parse_status === "failed" ? "rejected" : "needs_review"} />
               <span className="text-text-secondary">parse_status: <span className="font-mono text-text-primary">{status.parse_status}</span></span>

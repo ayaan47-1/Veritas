@@ -11,19 +11,19 @@ from ...services.ocr import OCRUnavailableError, ocr_pdf_page
 from ._helpers import update_parse_status
 
 
-def ocr_scanned_pages(document_id: str) -> None:
+def ocr_scanned_pages(document_id: str) -> dict[str, object]:
     update_parse_status(document_id, ParseStatus.ocr)
 
     db: Session = SessionLocal()
     try:
         document = db.query(Document).filter(Document.id == document_id).first()
         if not document:
-            return
+            return {"document_id": document_id, "status": "not_found"}
         if document.parse_status == ParseStatus.failed:
-            return
+            return {"document_id": str(document.id), "status": "skipped", "reason": "parse_failed"}
 
         if document.mime_type != "application/pdf":
-            return
+            return {"document_id": str(document.id), "status": "skipped", "reason": "non_pdf"}
 
         pages = (
             db.query(DocumentPage)
@@ -39,6 +39,9 @@ def ocr_scanned_pages(document_id: str) -> None:
             for page in pages
             if len((page.raw_text or "").strip()) < min_raw_chars or page.processing_status == PageProcessingStatus.failed
         ]
+        attempted_page_count = len(scanned_pages)
+        ocr_success_count = 0
+        ocr_failed_count = 0
 
         for page in scanned_pages:
             try:
@@ -49,12 +52,14 @@ def ocr_scanned_pages(document_id: str) -> None:
                 page.processing_error = None
                 db.add(page)
                 db.commit()
+                ocr_success_count += 1
             except (OCRUnavailableError, Exception) as exc:
                 db.rollback()
                 page.processing_status = PageProcessingStatus.failed
                 page.processing_error = f"ocr_failed: {exc}"[:1000]
                 db.add(page)
                 db.commit()
+                ocr_failed_count += 1
 
         # MVP placeholder for OCR overlay artifact: store a processed copy path.
         source = Path(document.file_path)
@@ -66,5 +71,13 @@ def ocr_scanned_pages(document_id: str) -> None:
             document.processed_file_path = str(processed_path)
             db.add(document)
             db.commit()
+        return {
+            "document_id": str(document.id),
+            "status": "ok" if ocr_failed_count == 0 else "partial",
+            "attempted_page_count": attempted_page_count,
+            "ocr_success_count": ocr_success_count,
+            "ocr_failed_count": ocr_failed_count,
+            "processed_file_path": document.processed_file_path,
+        }
     finally:
         db.close()

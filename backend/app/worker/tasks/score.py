@@ -166,7 +166,7 @@ def _score_risk(
     risk.status = ReviewStatus.needs_review if risk.system_confidence >= 50 else ReviewStatus.rejected
 
 
-def score_extractions(document_id: str) -> None:
+def score_extractions(document_id: str) -> dict[str, object]:
     update_parse_status(document_id, ParseStatus.scoring)
 
     db: Session = SessionLocal()
@@ -174,9 +174,9 @@ def score_extractions(document_id: str) -> None:
         doc_id = document_id if isinstance(document_id, uuid.UUID) else uuid.UUID(str(document_id))
         document = db.query(Document).filter(Document.id == doc_id).first()
         if not document:
-            return
+            return {"document_id": str(document_id), "status": "not_found"}
         if document.parse_status == ParseStatus.failed:
-            return
+            return {"document_id": str(document.id), "status": "skipped", "reason": "parse_failed"}
 
         obligations = db.query(Obligation).filter(Obligation.document_id == document.id).all()
         risks = db.query(Risk).filter(Risk.document_id == document.id).all()
@@ -214,5 +214,17 @@ def score_extractions(document_id: str) -> None:
             db.add(risk)
 
         db.commit()
+        return {
+            "document_id": str(document.id),
+            "status": "ok",
+            "obligation_count": len(obligations),
+            "risk_count": len(risks),
+            "needs_review_obligation_count": sum(
+                1 for obligation in obligations if obligation.status == ReviewStatus.needs_review
+            ),
+            "rejected_obligation_count": sum(1 for obligation in obligations if obligation.status == ReviewStatus.rejected),
+            "needs_review_risk_count": sum(1 for risk in risks if risk.status == ReviewStatus.needs_review),
+            "rejected_risk_count": sum(1 for risk in risks if risk.status == ReviewStatus.rejected),
+        }
     finally:
         db.close()

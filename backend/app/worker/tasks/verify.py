@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+import logging
 import re
 import uuid
 
@@ -24,6 +25,8 @@ from ...models import (
 from ...services.normalization import normalize_text
 from ._helpers import update_parse_status
 
+
+logger = logging.getLogger(__name__)
 
 _EXTERNAL_REF_PATTERNS = [
     "per exhibit",
@@ -159,6 +162,16 @@ def _payment_amounts(text: str) -> set[str]:
     return {m.group(1) for m in _AMOUNT_RE.finditer(text or "")}
 
 
+def _risk_evidence_key(
+    document_id: uuid.UUID,
+    quote_sha256: str,
+    page_number: int,
+    normalized_char_start: int,
+    normalized_char_end: int,
+) -> tuple[str, uuid.UUID, int, int, int]:
+    return (quote_sha256, document_id, page_number, normalized_char_start, normalized_char_end)
+
+
 def _detect_contradictions(
     db: Session,
     document: Document,
@@ -166,6 +179,16 @@ def _detect_contradictions(
     evidence_by_obligation: dict[uuid.UUID, list[ObligationEvidence]],
 ) -> None:
     pair_seen: set[tuple[uuid.UUID, uuid.UUID]] = set()
+    existing_risk_evidence_keys = {
+        _risk_evidence_key(
+            ev.document_id,
+            ev.quote_sha256,
+            ev.page_number,
+            ev.normalized_char_start,
+            ev.normalized_char_end,
+        )
+        for ev in db.query(RiskEvidence).filter(RiskEvidence.document_id == document.id).all()
+    }
 
     for i in range(len(obligations)):
         a = obligations[i]
@@ -223,6 +246,7 @@ def _detect_contradictions(
                 extraction_run_id=None,
             )
             db.add(risk)
+            db.flush()  # ensure risk row exists before junction FK references it
 
             junction = ObligationContradiction(
                 id=uuid.uuid4(),
@@ -234,8 +258,31 @@ def _detect_contradictions(
             db.add(junction)
 
             # Best-effort linkage evidence for contradiction risk from existing obligation evidence.
+            seen_ev_keys: set[tuple] = set()
             for ob in (a, b):
                 for ev in evidence_by_obligation.get(ob.id, []):
+                    ev_key = _risk_evidence_key(
+                        document.id,
+                        ev.quote_sha256,
+                        ev.page_number,
+                        ev.normalized_char_start,
+                        ev.normalized_char_end,
+                    )
+                    if ev_key in seen_ev_keys:
+                        continue
+                    if ev_key in existing_risk_evidence_keys:
+                        logger.info(
+                            "Skipping duplicate contradiction risk evidence for document_id=%s risk_id=%s page=%s span=%s-%s quote_sha256=%s",
+                            document.id,
+                            risk.id,
+                            ev.page_number,
+                            ev.normalized_char_start,
+                            ev.normalized_char_end,
+                            ev.quote_sha256,
+                        )
+                        continue
+                    seen_ev_keys.add(ev_key)
+                    existing_risk_evidence_keys.add(ev_key)
                     db.add(
                         RiskEvidence(
                             id=uuid.uuid4(),
@@ -259,16 +306,44 @@ def _detect_contradictions(
     db.commit()
 
 
-def verify_extractions(document_id: str) -> None:
+def verify_extractions(document_id: str) -> dict[str, object]:
     update_parse_status(document_id, ParseStatus.verification)
 
     db: Session = SessionLocal()
     try:
         document = db.query(Document).filter(Document.id == document_id).first()
         if not document:
-            return
+            return {"document_id": document_id, "status": "not_found"}
         if document.parse_status == ParseStatus.failed:
-            return
+            return {"document_id": str(document.id), "status": "skipped", "reason": "parse_failed"}
+
+        # Idempotency: clear evidence from any previous partial run so retries
+        # don't hit UniqueViolation on the (quote_sha256, doc, page, offsets) constraint.
+        db.query(ObligationEvidence).filter(ObligationEvidence.document_id == document.id).delete()
+        db.query(RiskEvidence).filter(RiskEvidence.document_id == document.id).delete()
+        # Reset flags that verification sets so they're recomputed cleanly.
+        obligations_pre = db.query(Obligation).filter(Obligation.document_id == document.id).all()
+        for ob in obligations_pre:
+            ob.status = ReviewStatus.needs_review
+            ob.has_external_reference = False
+            ob.contradiction_flag = False
+            db.add(ob)
+        risks_pre = db.query(Risk).filter(Risk.document_id == document.id).all()
+        # Remove contradiction-generated risks (they'll be re-detected).
+        for rk in risks_pre:
+            if rk.contradiction_flag and rk.risk_type == RiskType.contractual:
+                db.delete(rk)
+            else:
+                rk.status = ReviewStatus.needs_review
+                rk.has_external_reference = False
+                rk.contradiction_flag = False
+                db.add(rk)
+        # Clear contradiction junction records for this document's obligations.
+        ob_ids = {ob.id for ob in obligations_pre}
+        for ctr in db.query(ObligationContradiction).all():
+            if ctr.obligation_a_id in ob_ids or ctr.obligation_b_id in ob_ids:
+                db.delete(ctr)
+        db.commit()
 
         pages = (
             db.query(DocumentPage)
@@ -291,7 +366,20 @@ def verify_extractions(document_id: str) -> None:
         )
 
         evidence_by_obligation = _verify_obligations(db, document, pages, obligations)
-        _verify_risks(db, document, pages, risks)
+        evidence_by_risk = _verify_risks(db, document, pages, risks)
+        pre_contradiction_risk_count = db.query(Risk).filter(Risk.document_id == document.id).count()
         _detect_contradictions(db, document, obligations, evidence_by_obligation)
+        post_contradiction_risk_count = db.query(Risk).filter(Risk.document_id == document.id).count()
+        return {
+            "document_id": str(document.id),
+            "status": "ok",
+            "obligation_count": len(obligations),
+            "risk_count": len(risks),
+            "obligation_evidence_count": sum(len(items) for items in evidence_by_obligation.values()),
+            "risk_evidence_count": sum(len(items) for items in evidence_by_risk.values()),
+            "rejected_obligation_count": sum(1 for obligation in obligations if obligation.status == ReviewStatus.rejected),
+            "rejected_risk_count": sum(1 for risk in risks if risk.status == ReviewStatus.rejected),
+            "contradiction_risk_count": post_contradiction_risk_count - pre_contradiction_risk_count,
+        }
     finally:
         db.close()

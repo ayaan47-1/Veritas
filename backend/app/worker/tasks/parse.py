@@ -8,12 +8,32 @@ import fitz
 from sqlalchemy.orm import Session
 
 from ...database import SessionLocal
-from ...models import Chunk, Document, DocumentPage, PageProcessingStatus, ParseStatus, TextSource, TextSpan
+from ...models import Chunk, Document, DocumentPage, DocumentType, PageProcessingStatus, ParseStatus, TextSource, TextSpan
 from ._helpers import update_parse_status
 
 
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+_HEURISTIC_RULES: list[tuple[DocumentType, list[str]]] = [
+    # Most specific first
+    (DocumentType.rfi, ["request for information", "rfi #", "rfi no"]),
+    (DocumentType.change_order, ["change order", "change no.", "change no #", "contract modification"]),
+    (DocumentType.invoice, ["invoice #", "invoice no", "bill to", "remit to", "payment due"]),
+    (DocumentType.inspection_report, ["inspection report", "site inspection", "deficiency", "field observation"]),
+    (DocumentType.lease, ["tenant", "landlord", "lessee", "lessor", "tenancy", "rental agreement"]),
+    (DocumentType.contract, ["agreement", "whereas", "in witness whereof", "hereinafter"]),
+]
+
+
+def _detect_doc_type_heuristic(pages_text: list[str]) -> DocumentType | None:
+    """Return a heuristic doc type from the first pages of raw text, or None if uncertain."""
+    blob = " ".join(pages_text).lower()
+    for doc_type, keywords in _HEURISTIC_RULES:
+        if any(kw in blob for kw in keywords):
+            return doc_type
+    return None
 
 
 def _looks_like_table(raw_text: str) -> bool:
@@ -87,14 +107,14 @@ def _persist_failed_page(db: Session, document_id: uuid.UUID, page_number: int, 
     db.commit()
 
 
-def parse_document(document_id: str) -> None:
+def parse_document(document_id: str) -> dict[str, object]:
     update_parse_status(document_id, ParseStatus.parsing)
 
     db: Session = SessionLocal()
     try:
         document = db.query(Document).filter(Document.id == document_id).first()
         if not document:
-            return
+            return {"document_id": document_id, "status": "not_found"}
 
         db.query(TextSpan).filter(TextSpan.document_id == document.id).delete(synchronize_session=False)
         db.query(Chunk).filter(Chunk.document_id == document.id).delete(synchronize_session=False)
@@ -118,8 +138,20 @@ def parse_document(document_id: str) -> None:
                 db.add(page)
                 document.total_pages = 1
                 document.scanned_page_count = 0
+                detected = _detect_doc_type_heuristic([raw_text])
+                if detected is not None:
+                    document.doc_type = detected
                 db.add(document)
                 db.commit()
+                return {
+                    "document_id": str(document.id),
+                    "status": "ok",
+                    "file_type": "text",
+                    "total_pages": 1,
+                    "scanned_page_count": 0,
+                    "failed_page_count": 0,
+                    "text_span_count": 0,
+                }
             except Exception as exc:
                 db.rollback()
                 _persist_failed_page(db, document.id, 1, f"txt_parse_failed: {exc}")
@@ -127,7 +159,16 @@ def parse_document(document_id: str) -> None:
                 document.scanned_page_count = 0
                 db.add(document)
                 db.commit()
-            return
+                return {
+                    "document_id": str(document.id),
+                    "status": "partial",
+                    "file_type": "text",
+                    "total_pages": 1,
+                    "scanned_page_count": 0,
+                    "failed_page_count": 1,
+                    "text_span_count": 0,
+                    "error": str(exc)[:200],
+                }
 
         scanned_count = 0
         failed_page_count = 0
@@ -138,7 +179,12 @@ def parse_document(document_id: str) -> None:
             document.notes = f"parse_open_failed: {exc}"
             db.add(document)
             db.commit()
-            return
+            return {
+                "document_id": str(document.id),
+                "status": "failed",
+                "file_type": "pdf",
+                "error": str(exc)[:200],
+            }
 
         with pdf:
             total_pages = pdf.page_count
@@ -194,7 +240,32 @@ def parse_document(document_id: str) -> None:
 
         # If native parsing fails at page level, force OCR stage to try those pages.
         document.scanned_page_count = max(scanned_count, failed_page_count)
+
+        # Heuristic doc type detection from raw text — gives an early guess before
+        # the LLM classification stage runs. classify_document may override this.
+        pages = (
+            db.query(DocumentPage)
+            .filter(DocumentPage.document_id == document.id)
+            .order_by(DocumentPage.page_number.asc())
+            .all()
+        )[:3]
+        page_texts = [str(p.raw_text or "").strip() for p in pages if (p.raw_text or "").strip()]
+        if page_texts:
+            detected = _detect_doc_type_heuristic(page_texts)
+            if detected is not None:
+                document.doc_type = detected
+
         db.add(document)
         db.commit()
+        text_span_count = db.query(TextSpan).filter(TextSpan.document_id == document.id).count()
+        return {
+            "document_id": str(document.id),
+            "status": "ok" if failed_page_count == 0 else "partial",
+            "file_type": "pdf",
+            "total_pages": int(document.total_pages or 0),
+            "scanned_page_count": int(document.scanned_page_count or 0),
+            "failed_page_count": failed_page_count,
+            "text_span_count": text_span_count,
+        }
     finally:
         db.close()

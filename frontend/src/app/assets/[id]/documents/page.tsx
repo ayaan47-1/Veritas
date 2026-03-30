@@ -5,10 +5,10 @@ import { useAuth } from "@clerk/nextjs";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { deleteDocument, getAssetDocuments, getCurrentUser, ingestDocument } from "@/lib/api";
+import { deleteDocument, getAssetDocuments, getCurrentUser, ingestDocument, processDocument } from "@/lib/api";
 import type { CurrentUser, DocumentSummary } from "@/lib/types";
 
-const DOC_TYPES = ["all", "contract", "invoice", "inspection_report", "rfi", "change_order", "unknown"] as const;
+const DOC_TYPES = ["all", "contract", "lease", "invoice", "inspection_report", "rfi", "change_order", "unknown"] as const;
 const PARSE_STATUSES = ["all", "uploaded", "parsing", "ocr", "chunking", "classification", "extraction", "verification", "scoring", "complete", "partially_processed", "failed"] as const;
 
 export default function AssetDocumentsPage() {
@@ -23,9 +23,12 @@ export default function AssetDocumentsPage() {
   const [parseStatus, setParseStatus] = useState<string>("all");
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [processingId, setProcessingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [lastUploaded, setLastUploaded] = useState<{ id: string; name: string } | null>(null);
 
   const loadPage = useCallback(
     async (cursor: string | number, append: boolean) => {
@@ -72,20 +75,36 @@ export default function AssetDocumentsPage() {
       return;
     }
     setIsUploading(true);
-    setError(null);
+    setUploadError(null);
     try {
-      await ingestDocument(getToken, {
+      const uploaded = await ingestDocument(getToken, {
         assetId,
         uploadedBy: user.id,
         file: selectedFile,
+        autoProcess: false,
       });
+      setLastUploaded({ id: uploaded.document_id, name: selectedFile.name });
       setSelectedFile(null);
       await loadPage(0, false);
-    } catch (uploadError) {
-      const message = uploadError instanceof Error ? uploadError.message : "Upload failed";
-      setError(message);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Upload failed";
+      setUploadError(message);
     } finally {
       setIsUploading(false);
+    }
+  }
+
+  async function handleProcess(documentId: string) {
+    setProcessingId(documentId);
+    setError(null);
+    try {
+      await processDocument(getToken, documentId);
+      setItems((prev) => prev.map((doc) => (doc.id === documentId ? { ...doc, parse_status: "parsing" } : doc)));
+      setLastUploaded((prev) => (prev?.id === documentId ? null : prev));
+    } catch (processError) {
+      setError(processError instanceof Error ? processError.message : "Failed to queue document for processing");
+    } finally {
+      setProcessingId(null);
     }
   }
 
@@ -140,6 +159,25 @@ export default function AssetDocumentsPage() {
               {isUploading ? "Uploading..." : "Upload"}
             </button>
           </div>
+          {uploadError ? (
+            <p className="mt-3 rounded-xl bg-danger-subtle px-3 py-2 text-sm font-medium text-danger">{uploadError}</p>
+          ) : null}
+          {lastUploaded ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-bg-subtle px-3 py-2">
+              <p className="text-xs text-text-secondary">
+                Uploaded <span className="font-medium text-text-primary">{lastUploaded.name}</span>. Click process to start the run.
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleProcess(lastUploaded.id)}
+                disabled={processingId === lastUploaded.id}
+                style={{ background: "var(--accent-subtle)", color: "var(--accent)", borderColor: "var(--accent)" }}
+                className="rounded-full border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+              >
+                {processingId === lastUploaded.id ? "Processing..." : "Process Document"}
+              </button>
+            </div>
+          ) : null}
         </form>
 
         <div className="mb-5 flex flex-wrap gap-3">
@@ -189,8 +227,7 @@ export default function AssetDocumentsPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Parse Status</th>
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Uploaded At</th>
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Pages</th>
-                  <th className="px-4 py-3"></th>
-                  <th className="px-4 py-3"></th>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -208,23 +245,33 @@ export default function AssetDocumentsPage() {
                     </td>
                     <td className="px-4 py-3 text-text-secondary">{document.total_pages ?? "—"}</td>
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/documents/${document.id}`}
-                        style={{ background: "var(--info-subtle)", color: "var(--info)", borderColor: "var(--info)" }}
-                        className="rounded-full border px-2.5 py-1 text-xs font-medium"
-                      >
-                        View
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => void handleDelete(document.id)}
-                        disabled={deletingId === document.id}
-                        style={{ background: "var(--danger-subtle)", color: "var(--danger)", borderColor: "var(--danger)" }}
-                        className="rounded-full border px-2.5 py-1 text-xs font-medium disabled:opacity-50"
-                      >
-                        {deletingId === document.id ? "Deleting..." : "Delete"}
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/documents/${document.id}`}
+                          style={{ background: "var(--info-subtle)", color: "var(--info)", borderColor: "var(--info)" }}
+                          className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                        >
+                          View
+                        </Link>
+                        {document.parse_status === "uploaded" ? (
+                          <button
+                            onClick={() => void handleProcess(document.id)}
+                            disabled={processingId === document.id}
+                            style={{ background: "var(--accent-subtle)", color: "var(--accent)", borderColor: "var(--accent)" }}
+                            className="rounded-full border px-2.5 py-1 text-xs font-medium disabled:opacity-50"
+                          >
+                            {processingId === document.id ? "Processing..." : "Process Document"}
+                          </button>
+                        ) : null}
+                        <button
+                          onClick={() => void handleDelete(document.id)}
+                          disabled={deletingId === document.id}
+                          style={{ background: "var(--danger-subtle)", color: "var(--danger)", borderColor: "var(--danger)" }}
+                          className="rounded-full border px-2.5 py-1 text-xs font-medium disabled:opacity-50"
+                        >
+                          {deletingId === document.id ? "Deleting..." : "Delete"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -16,16 +16,16 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def normalize_pages(document_id: str) -> None:
+def normalize_pages(document_id: str) -> dict[str, object]:
     update_parse_status(document_id, ParseStatus.chunking)
 
     db: Session = SessionLocal()
     try:
         document = db.query(Document).filter(Document.id == document_id).first()
         if not document:
-            return
+            return {"document_id": document_id, "status": "not_found"}
         if document.parse_status == ParseStatus.failed:
-            return
+            return {"document_id": str(document.id), "status": "skipped", "reason": "parse_failed"}
 
         pages = (
             db.query(DocumentPage)
@@ -33,9 +33,13 @@ def normalize_pages(document_id: str) -> None:
             .order_by(DocumentPage.page_number.asc())
             .all()
         )
+        processed_page_count = 0
+        failed_page_count = 0
+        skipped_failed_page_count = 0
 
         for page in pages:
             if page.processing_status == PageProcessingStatus.failed:
+                skipped_failed_page_count += 1
                 continue
 
             try:
@@ -46,17 +50,26 @@ def normalize_pages(document_id: str) -> None:
                 page.processing_error = None
                 db.add(page)
                 db.commit()
+                processed_page_count += 1
             except Exception as exc:
                 db.rollback()
                 page.processing_status = PageProcessingStatus.failed
                 page.processing_error = f"normalize_failed: {exc}"[:1000]
                 db.add(page)
                 db.commit()
+                failed_page_count += 1
+        return {
+            "document_id": str(document.id),
+            "status": "ok" if failed_page_count == 0 else "partial",
+            "processed_page_count": processed_page_count,
+            "failed_page_count": failed_page_count,
+            "skipped_failed_page_count": skipped_failed_page_count,
+        }
     finally:
         db.close()
 
 
-def chunk_pages(document_id: str) -> None:
+def chunk_pages(document_id: str) -> dict[str, object]:
     update_parse_status(document_id, ParseStatus.chunking)
 
     max_chars = int(settings.raw.get("chunking", {}).get("max_chars", 4000))
@@ -65,9 +78,9 @@ def chunk_pages(document_id: str) -> None:
     try:
         document = db.query(Document).filter(Document.id == document_id).first()
         if not document:
-            return
+            return {"document_id": document_id, "status": "not_found"}
         if document.parse_status == ParseStatus.failed:
-            return
+            return {"document_id": str(document.id), "status": "skipped", "reason": "parse_failed"}
 
         db.query(Chunk).filter(Chunk.document_id == document.id).delete(synchronize_session=False)
         db.commit()
@@ -81,6 +94,8 @@ def chunk_pages(document_id: str) -> None:
             .order_by(DocumentPage.page_number.asc())
             .all()
         )
+        chunk_count = 0
+        failed_page_count = 0
 
         for page in pages:
             try:
@@ -99,6 +114,7 @@ def chunk_pages(document_id: str) -> None:
                             split_reason=SplitReason(slc.split_reason),
                         )
                     )
+                    chunk_count += 1
                 db.commit()
             except Exception as exc:
                 db.rollback()
@@ -106,5 +122,14 @@ def chunk_pages(document_id: str) -> None:
                 page.processing_error = f"chunk_failed: {exc}"[:1000]
                 db.add(page)
                 db.commit()
+                failed_page_count += 1
+        return {
+            "document_id": str(document.id),
+            "status": "ok" if failed_page_count == 0 else "partial",
+            "processed_page_count": len(pages),
+            "chunk_count": chunk_count,
+            "failed_page_count": failed_page_count,
+            "max_chars": max_chars,
+        }
     finally:
         db.close()

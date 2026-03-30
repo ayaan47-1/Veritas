@@ -9,6 +9,7 @@ import ReviewModal from "@/components/ReviewModal";
 import SeverityBadge from "@/components/SeverityBadge";
 import StatusBadge from "@/components/StatusBadge";
 import { getAssets, getCurrentUser, getRisks, reviewRisk } from "@/lib/api";
+import { csvFilename, downloadCsv } from "@/lib/csv";
 import type { Asset, CurrentUser, ReviewDecision, Risk } from "@/lib/types";
 
 const SEVERITY_ORDER = { critical: 4, high: 3, medium: 2, low: 1 } as const;
@@ -127,6 +128,19 @@ export default function RisksClientPage() {
     });
   }, [items, sortKey, sortDir]);
 
+  function exportCsv() {
+    const headers = ["Risk", "Type", "Severity", "LLM Severity", "Status", "Confidence"];
+    const rows = sortedItems.map((item) => [
+      item.risk_text,
+      item.risk_type,
+      item.severity,
+      item.llm_severity ?? "",
+      item.status,
+      item.llm_quality_confidence ?? item.system_confidence,
+    ]);
+    downloadCsv(csvFilename("Risks", selectedAsset?.name ?? "All"), headers, rows);
+  }
+
   async function submitReview(payload: {
     decision: ReviewDecision;
     reviewer_confidence: number;
@@ -152,6 +166,15 @@ export default function RisksClientPage() {
               <Link href="/risks" className="rounded-full border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary">
                 ← All Assets
               </Link>
+              {items.length > 0 ? (
+                <button
+                  onClick={exportCsv}
+                  className="rounded-full border px-3 py-1.5 text-sm font-medium transition-colors"
+                  style={{ background: "var(--info-subtle)", color: "var(--info)", borderColor: "var(--info)" }}
+                >
+                  Export CSV
+                </button>
+              ) : null}
               <Link
                 href={`/obligations?asset_id=${assetId}`}
                 className="rounded-full bg-brand px-3 py-1.5 text-sm font-medium text-bg"

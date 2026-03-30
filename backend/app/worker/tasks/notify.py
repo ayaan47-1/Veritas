@@ -22,16 +22,22 @@ from ...models import (
 )
 
 
-def persist_final_status(document_id: str) -> None:
+def persist_final_status(document_id: str) -> dict[str, object]:
     db = SessionLocal()
     try:
         document = db.query(Document).filter(Document.id == document_id).first()
         if not document:
-            return
+            return {"document_id": document_id, "status": "not_found"}
         if document.parse_status == ParseStatus.failed:
             db.add(document)
             db.commit()
-            return
+            return {
+                "document_id": str(document.id),
+                "status": "ok",
+                "parse_status": document.parse_status.value,
+                "failed_page_count": 0,
+                "failed_extraction_run_count": 0,
+            }
         failed_pages = (
             db.query(DocumentPage)
             .filter(
@@ -55,16 +61,23 @@ def persist_final_status(document_id: str) -> None:
             document.parse_status = ParseStatus.complete
         db.add(document)
         db.commit()
+        return {
+            "document_id": str(document.id),
+            "status": "ok",
+            "parse_status": document.parse_status.value,
+            "failed_page_count": failed_pages,
+            "failed_extraction_run_count": failed_extraction_runs,
+        }
     finally:
         db.close()
 
 
-def emit_notifications(document_id: str) -> None:
+def emit_notifications(document_id: str) -> dict[str, object]:
     db = SessionLocal()
     try:
         document = db.query(Document).filter(Document.id == document_id).first()
         if not document:
-            return
+            return {"document_id": document_id, "status": "not_found"}
 
         recipients = {document.uploaded_by}
         assignments = (
@@ -93,6 +106,7 @@ def emit_notifications(document_id: str) -> None:
 
         risks = db.query(Risk).filter(Risk.document_id == document.id).all()
         elevated_risks = [risk for risk in risks if risk.severity in {Severity.high, Severity.critical}]
+        event_count = 1
         if elevated_risks:
             risk_event = NotificationEvent(
                 id=uuid.uuid4(),
@@ -105,8 +119,17 @@ def emit_notifications(document_id: str) -> None:
             )
             db.add(risk_event)
             _create_user_notifications(db, risk_event.id, recipients, channels)
+            event_count += 1
 
         db.commit()
+        return {
+            "document_id": str(document.id),
+            "status": "ok",
+            "recipient_count": len(recipients),
+            "channel_count": len(channels),
+            "event_count": event_count,
+            "high_or_critical_risk_count": len(elevated_risks),
+        }
     except Exception:
         db.rollback()
         raise

@@ -385,7 +385,7 @@ def _finish_run(
     db.commit()
 
 
-def _extract_entities_impl(db: Session, document: Document, run: ExtractionRun, llm_cfg: dict) -> None:
+def _extract_entities_impl(db: Session, document: Document, run: ExtractionRun, llm_cfg: dict) -> dict[str, object]:
     chunks = (
         db.query(Chunk)
         .filter(Chunk.document_id == document.id)
@@ -437,9 +437,17 @@ def _extract_entities_impl(db: Session, document: Document, run: ExtractionRun, 
         db.commit()
 
     _finish_run(db=db, run=run, model_used=model_used, outputs=outputs, errors=errors, success_count=success_count)
+    return {
+        "run_id": str(run.id),
+        "model_used": model_used,
+        "selected_chunk_count": len(_select_chunks_for_stage(chunks, "entity_extraction", llm_cfg)),
+        "mention_count": success_count,
+        "error_count": len(errors),
+        "run_status": run.status.value,
+    }
 
 
-def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRun, llm_cfg: dict) -> None:
+def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRun, llm_cfg: dict) -> dict[str, object]:
     chunks = (
         db.query(Chunk)
         .filter(Chunk.document_id == document.id)
@@ -510,9 +518,17 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
         db.commit()
 
     _finish_run(db=db, run=run, model_used=model_used, outputs=outputs, errors=errors, success_count=success_count)
+    return {
+        "run_id": str(run.id),
+        "model_used": model_used,
+        "selected_chunk_count": len(_select_chunks_for_stage(chunks, "obligation_extraction", llm_cfg)),
+        "obligation_count": success_count,
+        "error_count": len(errors),
+        "run_status": run.status.value,
+    }
 
 
-def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm_cfg: dict) -> None:
+def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm_cfg: dict) -> dict[str, object]:
     chunks = (
         db.query(Chunk)
         .filter(Chunk.document_id == document.id)
@@ -569,6 +585,14 @@ def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm
         db.commit()
 
     _finish_run(db=db, run=run, model_used=model_used, outputs=outputs, errors=errors, success_count=success_count)
+    return {
+        "run_id": str(run.id),
+        "model_used": model_used,
+        "selected_chunk_count": len(_select_chunks_for_stage(chunks, "risk_extraction", llm_cfg)),
+        "risk_count": success_count,
+        "error_count": len(errors),
+        "run_status": run.status.value,
+    }
 
 
 def _run_extraction_stage(
@@ -577,7 +601,7 @@ def _run_extraction_stage(
     stage: ExtractionStage,
     prompt_name: str,
     impl,
-) -> None:
+) -> dict[str, object]:
     update_parse_status(str(document_id), ParseStatus.extraction)
 
     db: Session = SessionLocal()
@@ -585,19 +609,25 @@ def _run_extraction_stage(
         doc_id = _to_uuid(document_id)
         document = db.query(Document).filter(Document.id == doc_id).first()
         if not document:
-            return
+            return {"document_id": str(document_id), "status": "not_found", "stage": stage.value}
         if document.parse_status == ParseStatus.failed:
-            return
+            return {"document_id": str(document.id), "status": "skipped", "stage": stage.value, "reason": "parse_failed"}
 
         llm_cfg = settings.raw.get("llm", {})
         run = _start_run(db=db, document=document, stage=stage, prompt_name=prompt_name, llm_cfg=llm_cfg)
-        impl(db, document, run, llm_cfg)
+        summary = impl(db, document, run, llm_cfg)
+        return {
+            "document_id": str(document.id),
+            "status": "ok" if summary.get("error_count", 0) == 0 else "partial",
+            "stage": stage.value,
+            **summary,
+        }
     finally:
         db.close()
 
 
-def extract_entities(document_id: str) -> None:
-    _run_extraction_stage(
+def extract_entities(document_id: str) -> dict[str, object]:
+    return _run_extraction_stage(
         document_id=document_id,
         stage=ExtractionStage.entity_extraction,
         prompt_name="extract_entities_default",
@@ -605,8 +635,8 @@ def extract_entities(document_id: str) -> None:
     )
 
 
-def extract_obligations(document_id: str) -> None:
-    _run_extraction_stage(
+def extract_obligations(document_id: str) -> dict[str, object]:
+    return _run_extraction_stage(
         document_id=document_id,
         stage=ExtractionStage.obligation_extraction,
         prompt_name="extract_obligations_default",
@@ -614,8 +644,8 @@ def extract_obligations(document_id: str) -> None:
     )
 
 
-def extract_risks(document_id: str) -> None:
-    _run_extraction_stage(
+def extract_risks(document_id: str) -> dict[str, object]:
+    return _run_extraction_stage(
         document_id=document_id,
         stage=ExtractionStage.risk_extraction,
         prompt_name="extract_risks_default",

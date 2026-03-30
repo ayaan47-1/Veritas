@@ -17,6 +17,7 @@ class OIDCProvider(str, enum.Enum):
 
 class DocumentType(str, enum.Enum):
     contract = "contract"
+    lease = "lease"
     inspection_report = "inspection_report"
     rfi = "rfi"
     change_order = "change_order"

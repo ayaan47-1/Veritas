@@ -71,10 +71,10 @@ def _build_items_block(items: list[Obligation | Risk], evidence_pages: dict[uuid
     return "\n".join(lines)
 
 
-def rescore_with_llm(document_id: str) -> None:
+def rescore_with_llm(document_id: str) -> dict[str, object]:
     rescoring_cfg = settings.raw.get("rescoring", {})
     if not rescoring_cfg.get("enabled", False):
-        return
+        return {"document_id": document_id, "status": "skipped", "reason": "disabled"}
 
     update_parse_status(document_id, ParseStatus.rescoring)
 
@@ -83,12 +83,13 @@ def rescore_with_llm(document_id: str) -> None:
         doc_id = document_id if isinstance(document_id, uuid.UUID) else uuid.UUID(str(document_id))
         document = db.query(Document).filter(Document.id == doc_id).first()
         if not document or document.parse_status == ParseStatus.failed:
-            return
+            reason = "not_found" if not document else "parse_failed"
+            return {"document_id": str(document_id), "status": "skipped", "reason": reason}
 
         obligations = db.query(Obligation).filter(Obligation.document_id == doc_id).all()
         risks = db.query(Risk).filter(Risk.document_id == doc_id).all()
         if not obligations and not risks:
-            return
+            return {"document_id": str(document.id), "status": "skipped", "reason": "no_items"}
 
         obligation_evidence = db.query(ObligationEvidence).filter(ObligationEvidence.document_id == doc_id).all()
         risk_evidence = db.query(RiskEvidence).filter(RiskEvidence.document_id == doc_id).all()
@@ -105,6 +106,7 @@ def rescore_with_llm(document_id: str) -> None:
         model = str(rescoring_cfg.get("model", "claude-haiku-4-5-20251001"))
         max_items = int(rescoring_cfg.get("max_items_per_call", 50) or 50)
         max_items = max(1, max_items)
+        updated_item_count = 0
 
         for start in range(0, len(all_items), max_items):
             batch = all_items[start : start + max_items]
@@ -117,7 +119,13 @@ def rescore_with_llm(document_id: str) -> None:
                 results = parse_json_list(raw)
             except Exception:
                 logger.exception("Rescore LLM call failed for document %s", document_id)
-                return
+                return {
+                    "document_id": str(document.id),
+                    "status": "failed",
+                    "model_used": model,
+                    "item_count": len(all_items),
+                    "updated_item_count": updated_item_count,
+                }
 
             for entry in results:
                 item = items_by_id.get(str(entry.get("id", "")))
@@ -133,9 +141,18 @@ def rescore_with_llm(document_id: str) -> None:
                     item.llm_quality_confidence = _clamp(int(raw_conf))
 
                 db.add(item)
+                updated_item_count += 1
 
         db.commit()
+        return {
+            "document_id": str(document.id),
+            "status": "ok",
+            "model_used": model,
+            "item_count": len(all_items),
+            "updated_item_count": updated_item_count,
+        }
     except Exception:
         logger.exception("Rescore stage failed for document %s", document_id)
+        return {"document_id": str(document_id), "status": "failed"}
     finally:
         db.close()

@@ -221,7 +221,7 @@ export async function reviewRisk(
 
 export async function ingestDocument(
   getToken: GetTokenFn,
-  payload: { assetId: string; uploadedBy: string; file: File },
+  payload: { assetId: string; uploadedBy: string; file: File; autoProcess?: boolean },
 ): Promise<{ document_id: string }> {
   const token = await getToken();
   if (!token) {
@@ -231,6 +231,7 @@ export async function ingestDocument(
   const formData = new FormData();
   formData.set("asset_id", payload.assetId);
   formData.set("uploaded_by", payload.uploadedBy);
+  formData.set("auto_process", String(Boolean(payload.autoProcess)));
   formData.set("file", payload.file);
 
   const response = await fetch(`${API_BASE}/ingest`, {
@@ -255,6 +256,12 @@ export async function ingestDocument(
   }
 
   return (await response.json()) as { document_id: string };
+}
+
+export async function processDocument(getToken: GetTokenFn, documentId: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/documents/${documentId}/process`, getToken, {
+    method: "POST",
+  });
 }
 
 export async function getNotifications(

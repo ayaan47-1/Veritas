@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import importlib
 from pathlib import Path
@@ -78,7 +79,11 @@ class FakeSession:
         return FakeQuery(self, model)
 
 
-def _make_document(file_path: str, processed_file_path: str | None = None) -> Document:
+def _make_document(
+    file_path: str,
+    processed_file_path: str | None = None,
+    parse_status: ParseStatus = ParseStatus.complete,
+) -> Document:
     return Document(
         id=uuid.uuid4(),
         asset_id=uuid.uuid4(),
@@ -88,7 +93,7 @@ def _make_document(file_path: str, processed_file_path: str | None = None) -> Do
         sha256=hashlib.sha256(b"doc").hexdigest(),
         mime_type="application/pdf",
         uploaded_by=uuid.uuid4(),
-        parse_status=ParseStatus.complete,
+        parse_status=parse_status,
         scanned_page_count=0,
     )
 
@@ -187,3 +192,31 @@ def test_get_document_pdf_raises_404_when_selected_file_missing(tmp_path: Path):
         documents_router.get_document_pdf(document.id, processed=False, db=db)
 
     assert exc.value.status_code == 404
+
+
+def test_process_document_queues_uploaded_document(monkeypatch):
+    document = _make_document("/tmp/original.pdf", parse_status=ParseStatus.uploaded)
+    db = FakeSession(document=document)
+    sent_events: list[object] = []
+
+    class _FakeInngestClient:
+        async def send(self, event):
+            sent_events.append(event)
+
+    monkeypatch.setattr(documents_router, "inngest_client", _FakeInngestClient())
+
+    result = asyncio.run(documents_router.process_document(document.id, db=db))
+
+    assert result == {"ok": True}
+    assert len(sent_events) == 1
+    assert getattr(sent_events[0], "name", "") == "veritas/document.uploaded"
+
+
+def test_process_document_rejects_non_uploaded_document():
+    document = _make_document("/tmp/original.pdf", parse_status=ParseStatus.complete)
+    db = FakeSession(document=document)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(documents_router.process_document(document.id, db=db))
+
+    assert exc.value.status_code == 409

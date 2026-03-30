@@ -9,6 +9,7 @@ import ReviewModal from "@/components/ReviewModal";
 import SeverityBadge from "@/components/SeverityBadge";
 import StatusBadge from "@/components/StatusBadge";
 import { getAssets, getCurrentUser, getObligations, reviewObligation } from "@/lib/api";
+import { csvFilename, downloadCsv } from "@/lib/csv";
 import type { Asset, CurrentUser, Obligation, ReviewDecision } from "@/lib/types";
 
 const SEVERITY_ORDER = { critical: 4, high: 3, medium: 2, low: 1 } as const;
@@ -127,6 +128,20 @@ export default function ObligationsClientPage() {
     });
   }, [items, sortKey, sortDir]);
 
+  function exportCsv() {
+    const headers = ["Obligation", "Type", "Severity", "LLM Severity", "Status", "Confidence", "Due Date"];
+    const rows = sortedItems.map((item) => [
+      item.obligation_text,
+      item.obligation_type,
+      item.severity,
+      item.llm_severity ?? "",
+      item.status,
+      item.llm_quality_confidence ?? item.system_confidence,
+      item.due_date ? item.due_date.slice(0, 10) : "",
+    ]);
+    downloadCsv(csvFilename("Obligations", selectedAsset?.name ?? "All"), headers, rows);
+  }
+
   async function submitReview(payload: {
     decision: ReviewDecision;
     reviewer_confidence: number;
@@ -152,6 +167,15 @@ export default function ObligationsClientPage() {
               <Link href="/obligations" className="rounded-full border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary">
                 ← All Assets
               </Link>
+              {items.length > 0 ? (
+                <button
+                  onClick={exportCsv}
+                  className="rounded-full border px-3 py-1.5 text-sm font-medium transition-colors"
+                  style={{ background: "var(--info-subtle)", color: "var(--info)", borderColor: "var(--info)" }}
+                >
+                  Export CSV
+                </button>
+              ) : null}
               <Link
                 href={`/risks?asset_id=${assetId}`}
                 className="rounded-full bg-brand px-3 py-1.5 text-sm font-medium text-bg"

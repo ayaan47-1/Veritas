@@ -66,6 +66,9 @@ def _heuristics_match(doc_type: DocumentType, text_blob: str) -> bool:
     if doc_type == DocumentType.inspection_report:
         return any(token in text for token in ["inspect", "examin", "assess", "finding"])
 
+    if doc_type == DocumentType.lease:
+        return any(token in text for token in ["tenant", "landlord", "rent", "lease", "lessee", "lessor", "tenancy"])
+
     if doc_type == DocumentType.contract:
         return any(token in text for token in ["agree", "party", "parties", "shall", "obligation"])
 
@@ -84,7 +87,7 @@ def _heuristics_match(doc_type: DocumentType, text_blob: str) -> bool:
 def _build_prompt(sample_pages: list[str]) -> str:
     joined = "\n\n".join(sample_pages)[:12000]
     return (
-        "Classify the document type as one of: contract, inspection_report, rfi, "
+        "Classify the document type as one of: contract, lease, inspection_report, rfi, "
         "change_order, invoice, unknown. Return compact JSON: "
         '{"doc_type":"...","confidence":0.0,"explanation":"..."}.\n\n'
         f"Document excerpts:\n{joined}"
@@ -146,16 +149,16 @@ def _run_with_retries(prompt: str, llm_cfg: dict) -> tuple[str | None, dict | No
     return None, None, last_error
 
 
-def classify_document(document_id: str) -> None:
+def classify_document(document_id: str) -> dict[str, object]:
     update_parse_status(document_id, ParseStatus.classification)
 
     db: Session = SessionLocal()
     try:
         document = db.query(Document).filter(Document.id == document_id).first()
         if not document:
-            return
+            return {"document_id": document_id, "status": "not_found"}
         if document.parse_status == ParseStatus.failed:
-            return
+            return {"document_id": str(document.id), "status": "skipped", "reason": "parse_failed"}
 
         sample_pages = int(settings.raw.get("classification", {}).get("sample_pages", 3))
         page_texts = _extract_sample_pages(db, document.id, sample_pages)
@@ -194,7 +197,16 @@ def classify_document(document_id: str) -> None:
             db.add(document)
             db.add(run)
             db.commit()
-            return
+            return {
+                "document_id": str(document.id),
+                "status": "failed",
+                "run_id": str(run.id),
+                "doc_type": document.doc_type.value,
+                "doc_type_confidence": document.doc_type_confidence,
+                "model_used": run.model_used,
+                "sample_page_count": len(page_texts),
+                "error": run.error,
+            }
 
         detected_type = _coerce_doc_type(response.get("doc_type"))
         confidence_raw = response.get("confidence")
@@ -223,6 +235,14 @@ def classify_document(document_id: str) -> None:
         db.add(document)
         db.add(run)
         db.commit()
+        return {
+            "document_id": str(document.id),
+            "status": "ok",
+            "run_id": str(run.id),
+            "doc_type": document.doc_type.value,
+            "doc_type_confidence": document.doc_type_confidence,
+            "model_used": run.model_used,
+            "sample_page_count": len(page_texts),
+        }
     finally:
         db.close()
-

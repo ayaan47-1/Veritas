@@ -48,6 +48,35 @@ class FakeQuery:
         rows = self.all()
         return rows[0] if rows else None
 
+    def count(self):
+        return len(self.all())
+
+    def delete(self, synchronize_session: str | bool = False) -> int:
+        matched = self.all()
+        storage = self._storage_for_model()
+        if storage is not None:
+            for row in matched:
+                if row in storage:
+                    storage.remove(row)
+        return len(matched)
+
+    def in_(self, sub):
+        """Stub for subquery .in_() — returns a truthy placeholder."""
+        return True
+
+    def _storage_for_model(self):
+        if self._model is verify_task.ObligationEvidence:
+            return self._session.obligation_evidence
+        if self._model is verify_task.RiskEvidence:
+            return self._session.risk_evidence
+        if self._model is verify_task.ObligationContradiction:
+            return self._session.contradictions
+        if self._model is verify_task.Obligation:
+            return self._session.obligations
+        if self._model is verify_task.Risk:
+            return self._session.risks
+        return None
+
     def _rows_for_model(self):
         if self._model is verify_task.Document:
             return [self._session.document] if self._session.document else []
@@ -126,6 +155,12 @@ class FakeSession:
             if obj not in self.contradictions:
                 self.contradictions.append(obj)
             return
+
+    def delete(self, obj):
+        if isinstance(obj, Risk) and obj in self.risks:
+            self.risks.remove(obj)
+        elif isinstance(obj, ObligationContradiction) and obj in self.contradictions:
+            self.contradictions.remove(obj)
 
     def commit(self):
         return None
@@ -266,3 +301,28 @@ def test_verify_detects_contradictions_and_creates_conflict_risk(monkeypatch):
     conflict_risks = [r for r in db.risks if r.risk_type == RiskType.contractual]
     assert len(conflict_risks) == 1
     assert len(db.contradictions) == 1
+
+
+def test_verify_skips_duplicate_risk_evidence_when_contradiction_reuses_existing_quote(monkeypatch):
+    from datetime import date
+
+    document = _make_document()
+    q1 = "Contractor shall pay $1,000 by 2026-06-15"
+    q2 = "Contractor shall pay $2,000 by 2026-06-20"
+    page = _make_page(document.id, f"{q1}. Also {q2}.")
+
+    ob1 = _make_obligation(document.id, q1, due_date=date(2026, 6, 15), severity=Severity.medium)
+    ob2 = _make_obligation(document.id, q2, due_date=date(2026, 6, 20), severity=Severity.high)
+    risk = _make_risk(document.id, q1)
+
+    db = FakeSession(document=document, pages=[page], obligations=[ob1, ob2], risks=[risk])
+
+    monkeypatch.setattr(verify_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(verify_task, "update_parse_status", lambda *_a, **_k: None)
+
+    verify_task.verify_extractions(document.id)
+
+    conflict_risks = [r for r in db.risks if r.risk_type == RiskType.contractual]
+    assert len(conflict_risks) == 1
+    assert len(db.contradictions) == 1
+    assert len(db.risk_evidence) == 2

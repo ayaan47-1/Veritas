@@ -25,6 +25,7 @@ router = APIRouter(prefix="", tags=["ingest"])
 async def ingest_document(
     asset_id: UUID = Form(...),
     uploaded_by: UUID = Form(...),
+    auto_process: bool = Form(default=False),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
@@ -82,12 +83,12 @@ async def ingest_document(
     db.add(document)
     db.commit()
 
-    await inngest_client.send(
-        inngest.Event(
-            name="veritas/document.uploaded",
-            data={"document_id": str(document_id)},
+    if auto_process:
+        await inngest_client.send(
+            inngest.Event(
+                name="veritas/document.uploaded",
+                data={"document_id": str(document_id)},
+            )
         )
-    )
 
     return IngestResponse(document_id=document_id)
-
