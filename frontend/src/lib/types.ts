@@ -23,9 +23,11 @@ export type Obligation = {
   obligation_type: string;
   obligation_text: string;
   modality: string;
+  responsible_entity_id?: string | null;
   due_kind: string;
   due_date: string | null;
   due_rule: string | null;
+  trigger_date?: string | null;
   severity: "low" | "medium" | "high" | "critical";
   status: "needs_review" | "confirmed" | "rejected";
   system_confidence: number;
@@ -35,6 +37,7 @@ export type Obligation = {
   has_external_reference: boolean;
   contradiction_flag: boolean;
   created_at: string | null;
+  updated_at?: string | null;
 };
 
 export type Risk = {
