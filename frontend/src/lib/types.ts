@@ -3,6 +3,7 @@ export type ReviewDecision = "approve" | "reject" | "edit_approve";
 export type PaginatedResponse<T> = {
   items: T[];
   next_cursor: string | null;
+  total?: number;
 };
 
 export type Asset = {

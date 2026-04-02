@@ -104,6 +104,7 @@ def list_obligations(
     if asset_id is not None:
         query = query.join(Document, Obligation.document_id == Document.id).filter(Document.asset_id == asset_id)
 
+    total = query.count()
     rows = query.order_by(Obligation.created_at.desc()).offset(cursor).limit(limit + 1).all()
     has_more = len(rows) > limit
     page_rows = rows[:limit]
@@ -116,7 +117,7 @@ def list_obligations(
         for row in page_rows
     ]
     next_cursor = str(cursor + limit) if has_more else None
-    return {"items": items, "next_cursor": next_cursor}
+    return {"items": items, "next_cursor": next_cursor, "total": total}
 
 
 @router.get("/{obligation_id}", dependencies=[Depends(require_obligation_access("obligation_id"))])

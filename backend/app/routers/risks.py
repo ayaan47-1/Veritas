@@ -93,11 +93,12 @@ def list_risks(
     if asset_id is not None:
         query = query.join(Document, Risk.document_id == Document.id).filter(Document.asset_id == asset_id)
 
+    total = query.count()
     rows = query.order_by(Risk.created_at.desc()).offset(cursor).limit(limit + 1).all()
     has_more = len(rows) > limit
     items = [_serialize_risk(row) for row in rows[:limit]]
     next_cursor = str(cursor + limit) if has_more else None
-    return {"items": items, "next_cursor": next_cursor}
+    return {"items": items, "next_cursor": next_cursor, "total": total}
 
 
 @router.get("/{risk_id}", dependencies=[Depends(require_risk_access("risk_id"))])

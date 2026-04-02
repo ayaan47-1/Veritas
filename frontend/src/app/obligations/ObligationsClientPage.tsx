@@ -65,6 +65,7 @@ export default function ObligationsClientPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [items, setItems] = useState<Obligation[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reviewTarget, setReviewTarget] = useState<Obligation | null>(null);
@@ -101,6 +102,7 @@ export default function ObligationsClientPage() {
         if (assetResponse) setAssets(assetResponse.items);
         setItems((prev) => (append ? [...prev, ...response.items] : response.items));
         setNextCursor(response.next_cursor);
+        if (!append && response.total != null) setTotal(response.total);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Failed to load obligations");
       } finally {
@@ -258,7 +260,9 @@ export default function ObligationsClientPage() {
       <div className="mx-auto max-w-7xl">
         <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="font-serif text-2xl text-text-primary">Obligations</h1>
+            <h1 className="font-serif text-2xl text-text-primary">
+              Obligations{total != null ? <span className="ml-2 text-base font-normal text-text-tertiary">({total} total)</span> : null}
+            </h1>
             <p className="mt-1 text-sm text-text-secondary">
               {assetId ? (selectedAsset?.name ?? assetId) : "Select an asset to review obligations"}
             </p>
