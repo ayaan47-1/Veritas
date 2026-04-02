@@ -57,6 +57,12 @@ def _apply_env_overrides(cfg: Dict[str, Any]) -> Dict[str, Any]:
     if mcp_server_path:
         cfg.setdefault("mcp", {})["server_path"] = mcp_server_path
 
+    cors_extra = os.getenv("CORS_EXTRA_ORIGINS")
+    if cors_extra:
+        existing = _get_from_path(cfg, "app.cors_origins") or []
+        extra = [o.strip() for o in cors_extra.split(",") if o.strip()]
+        cfg.setdefault("app", {})["cors_origins"] = existing + extra
+
     return cfg
 
 
