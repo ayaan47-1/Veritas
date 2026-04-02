@@ -29,7 +29,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "VeritasLayer",
+  title: "Veritas",
   description: "AI Operational Intelligence Layer",
 };
 
@@ -50,7 +50,7 @@ export default function RootLayout({
             <div className="mx-auto flex h-11 max-w-7xl items-center justify-between px-6">
               <div className="flex items-center gap-6">
                 <Link href="/" className="font-serif text-base uppercase tracking-widest text-text-primary">
-                  VeritasLayer
+                  Veritas
                 </Link>
                 <NavLinks />
               </div>

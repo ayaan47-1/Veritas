@@ -7,9 +7,11 @@ import inngest.fast_api
 from .config import settings
 from .routers import assets as assets_router
 from .routers import auth as auth_router
+from .routers import compliance as compliance_router
 from .routers import config as config_router
 from .routers import documents as documents_router
 from .routers import entities as entities_router
+from .routers import ifc as ifc_router
 from .routers import ingest as ingest_router
 from .routers import notifications as notifications_router
 from .routers import obligations as obligations_router
@@ -19,7 +21,7 @@ from .routers import users as users_router
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="VeritasLayer API")
+    app = FastAPI(title="Veritas API")
 
     if settings.cors_origins:
         app.add_middleware(
@@ -34,6 +36,8 @@ def create_app() -> FastAPI:
     def health_check():
         return {"status": "ok"}
 
+    app.include_router(ifc_router)
+    app.include_router(compliance_router)
     app.include_router(ingest_router)
     app.include_router(documents_router)
     app.include_router(obligations_router)
@@ -47,9 +51,9 @@ def create_app() -> FastAPI:
     app.include_router(config_router)
 
     from .worker.inngest_client import inngest_client
-    from .worker.pipeline import process_document
+    from .worker.pipeline import process_document, run_compliance_check
 
-    inngest.fast_api.serve(app, inngest_client, [process_document])
+    inngest.fast_api.serve(app, inngest_client, [process_document, run_compliance_check])
 
     return app
 

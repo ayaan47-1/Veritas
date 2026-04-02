@@ -5,6 +5,6 @@ import inngest
 from ..config import settings
 
 inngest_client = inngest.Inngest(
-    app_id="veritas-layer",
+    app_id="veritas",
     is_production=settings.app_env == "production",
 )
