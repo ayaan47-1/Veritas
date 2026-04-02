@@ -223,10 +223,11 @@ export default function ObligationsClientPage() {
   }, [items, sortKey, sortDir]);
 
   const visibleItems = useMemo(() => {
-    if (domainFilter === "all") {
-      return sortedItems;
-    }
-    return sortedItems.filter((item) => (item.document_domain ?? item.domain ?? "general") === domainFilter);
+    return sortedItems.filter((item) => {
+      if (item.system_confidence === 0) return false;
+      if (domainFilter !== "all" && (item.document_domain ?? item.domain ?? "general") !== domainFilter) return false;
+      return true;
+    });
   }, [domainFilter, sortedItems]);
   const showProcessingPanel = Boolean(assetId && processingState);
   const showWaitingOnly = Boolean(showProcessingPanel && items.length === 0);

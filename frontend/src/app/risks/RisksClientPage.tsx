@@ -64,6 +64,7 @@ export default function RisksClientPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [items, setItems] = useState<Risk[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reviewTarget, setReviewTarget] = useState<Risk | null>(null);
@@ -99,6 +100,7 @@ export default function RisksClientPage() {
         if (assetResponse) setAssets(assetResponse.items);
         setItems((prev) => (append ? [...prev, ...response.items] : response.items));
         setNextCursor(response.next_cursor);
+        if (!append && response.total != null) setTotal(response.total);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Failed to load risks");
       } finally {
@@ -208,14 +210,16 @@ export default function RisksClientPage() {
   }
 
   const sortedItems = useMemo(() => {
-    return [...items].sort((a, b) => {
-      let cmp = 0;
-      if (sortKey === "severity") cmp = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
-      else if (sortKey === "status") cmp = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
-      else if (sortKey === "risk_type") cmp = a.risk_type.localeCompare(b.risk_type);
-      else if (sortKey === "system_confidence") cmp = a.system_confidence - b.system_confidence;
-      return sortDir === "desc" ? -cmp : cmp;
-    });
+    return [...items]
+      .filter((item) => item.system_confidence > 0)
+      .sort((a, b) => {
+        let cmp = 0;
+        if (sortKey === "severity") cmp = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
+        else if (sortKey === "status") cmp = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+        else if (sortKey === "risk_type") cmp = a.risk_type.localeCompare(b.risk_type);
+        else if (sortKey === "system_confidence") cmp = a.system_confidence - b.system_confidence;
+        return sortDir === "desc" ? -cmp : cmp;
+      });
   }, [items, sortKey, sortDir]);
   const showProcessingPanel = Boolean(assetId && processingState);
   const showWaitingOnly = Boolean(showProcessingPanel && items.length === 0);
@@ -248,7 +252,9 @@ export default function RisksClientPage() {
       <div className="mx-auto max-w-7xl">
         <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="font-serif text-2xl text-text-primary">Risks</h1>
+            <h1 className="font-serif text-2xl text-text-primary">
+              Risks{total != null ? <span className="ml-2 text-base font-normal text-text-tertiary">({total} total)</span> : null}
+            </h1>
             <p className="mt-1 text-sm text-text-secondary">
               {assetId ? (selectedAsset?.name ?? assetId) : "Select an asset to review risks"}
             </p>
