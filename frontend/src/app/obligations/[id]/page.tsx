@@ -11,7 +11,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { getCurrentUser, getDocument, getDocumentPage, getObligation, reviewObligation } from "@/lib/api";
 import type { CurrentUser, DocumentDetail, DocumentPage, ObligationDetail, ReviewDecision } from "@/lib/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
 const DEADLINE_RE = /\b(by|before|within|no later than|after|days?|weeks?|months?)\b/i;
 
 type ScoreBreakdownItem = {

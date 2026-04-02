@@ -30,6 +30,7 @@ class Document(Base, UUIDPrimaryKeyMixin):
     doc_type: Mapped[DocumentType] = mapped_column(
         Enum(DocumentType), nullable=False, server_default=DocumentType.unknown.value
     )
+    domain: Mapped[str | None] = mapped_column(String, nullable=True)
     doc_type_confidence: Mapped[float | None] = mapped_column(Float)
     doc_date: Mapped[date | None] = mapped_column(Date)
     parse_status: Mapped[ParseStatus] = mapped_column(

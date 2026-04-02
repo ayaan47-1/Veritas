@@ -78,7 +78,13 @@ class FakeSession:
         return FakeQuery(self, model)
 
 
-def _make_document(asset_id: uuid.UUID, source_name: str, doc_type: DocumentType, parse_status: ParseStatus) -> Document:
+def _make_document(
+    asset_id: uuid.UUID,
+    source_name: str,
+    doc_type: DocumentType,
+    parse_status: ParseStatus,
+    domain: str | None = None,
+) -> Document:
     return Document(
         id=uuid.uuid4(),
         asset_id=asset_id,
@@ -88,9 +94,34 @@ def _make_document(asset_id: uuid.UUID, source_name: str, doc_type: DocumentType
         mime_type="application/pdf",
         uploaded_by=uuid.uuid4(),
         doc_type=doc_type,
+        domain=domain,
         parse_status=parse_status,
         scanned_page_count=0,
     )
+
+
+def test_serialize_document_includes_domain():
+    document = _make_document(
+        asset_id=uuid.uuid4(),
+        source_name="policy.pdf",
+        doc_type=DocumentType.insurance_policy,
+        parse_status=ParseStatus.complete,
+        domain="financial",
+    )
+    result = assets_router._serialize_document(document)
+    assert result["domain"] == "financial"
+
+
+def test_serialize_document_domain_null_for_old_docs():
+    document = _make_document(
+        asset_id=uuid.uuid4(),
+        source_name="legacy.pdf",
+        doc_type=DocumentType.contract,
+        parse_status=ParseStatus.complete,
+        domain=None,
+    )
+    result = assets_router._serialize_document(document)
+    assert result["domain"] is None
 
 
 def test_list_asset_documents_filters_and_paginates():

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from difflib import SequenceMatcher
+import logging
 import re
 import time
 import uuid
@@ -13,6 +14,7 @@ from ...database import SessionLocal
 from ...models import (
     Chunk,
     Document,
+    DocumentType,
     DueKind,
     Entity,
     EntityMention,
@@ -31,6 +33,10 @@ from ...models import (
     Severity,
 )
 from ._helpers import update_parse_status
+
+logger = logging.getLogger(__name__)
+
+_WARNED_MISSING_DOMAINS = False
 
 
 def call_extract_llm(*, model: str, prompt: str, stage: str) -> list[dict]:
@@ -53,11 +59,50 @@ def _coerce_enum(value: object, enum_cls, default):
         return default
 
 
-_OBLIGATION_TYPE_ALIASES: dict[str, str] = {
-    "delivery": "submission",
-    "maintenance": "inspection",
-    "reporting": "compliance",
-}
+def _domains_config() -> dict[str, dict]:
+    global _WARNED_MISSING_DOMAINS
+    domains = settings.raw.get("domains", {})
+    if isinstance(domains, dict):
+        if not domains and not _WARNED_MISSING_DOMAINS:
+            logger.warning("Missing 'domains' config; extraction is using fallback defaults")
+            _WARNED_MISSING_DOMAINS = True
+        return domains
+
+    if not _WARNED_MISSING_DOMAINS:
+        logger.warning("Invalid 'domains' config; extraction is using fallback defaults")
+        _WARNED_MISSING_DOMAINS = True
+    return {}
+
+
+def _domain_for_doc_type(doc_type: DocumentType) -> str:
+    for domain_name, domain_data in _domains_config().items():
+        if doc_type.value in domain_data.get("doc_types", []):
+            return domain_name
+    return "general"
+
+
+def _get_stage_keywords(stage_name: str, doc_type: DocumentType) -> tuple[str, ...]:
+    domain_data = _domains_config().get(_domain_for_doc_type(doc_type), {})
+    keywords = domain_data.get("stage_keywords", {}).get(stage_name, [])
+    if keywords:
+        return tuple(str(item) for item in keywords)
+
+    general = _domains_config().get("general", {})
+    return tuple(str(item) for item in general.get("stage_keywords", {}).get(stage_name, ()))
+
+
+def _get_obligation_aliases(doc_type: DocumentType) -> dict[str, str]:
+    domain_data = _domains_config().get(_domain_for_doc_type(doc_type), {})
+    aliases = domain_data.get("obligation_aliases", {})
+    if isinstance(aliases, dict):
+        return {str(key): str(value) for key, value in aliases.items()}
+    return {}
+
+
+def _get_vocab_preamble(stage_name: str, doc_type: DocumentType) -> str:
+    domain_data = _domains_config().get(_domain_for_doc_type(doc_type), {})
+    preamble = domain_data.get("vocab_preambles", {}).get(stage_name, "")
+    return str(preamble or "")
 
 
 def _similarity(a: str, b: str) -> float:
@@ -171,55 +216,17 @@ _STAGE_SCHEMAS = {
 }
 
 
-def _build_prompt(stage_name: str, chunk: Chunk, document: Document) -> str:
+def _build_extraction_prompt(stage_name: str, chunk: Chunk, document: Document) -> str:
     schema = _STAGE_SCHEMAS.get(stage_name, "Return strict JSON array only.")
+    vocab_preamble = _get_vocab_preamble(stage_name, document.doc_type)
+    preamble = f"{vocab_preamble}\n\n" if vocab_preamble else ""
     return (
         f"Document type: {document.doc_type.value}\n"
         f"Page: {chunk.page_number}\n\n"
+        f"{preamble}"
         f"{schema}\n\n"
         f"Chunk text:\n{chunk.text}"
     )
-
-
-_STAGE_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "obligation_extraction": (
-        "shall",
-        "must",
-        "required",
-        "within",
-        "deadline",
-        "deliver",
-        "submit",
-        "payment",
-        "comply",
-    ),
-    "risk_extraction": (
-        "penalty",
-        "damages",
-        "liquidated",
-        "indemnif",
-        "bond",
-        "insurance",
-        "risk",
-        "breach",
-        "liable",
-        "delay",
-        "default",
-        "terminate",
-        "non-compliance",
-    ),
-    "entity_extraction": (
-        "llc",
-        "inc",
-        "company",
-        "contractor",
-        "owner",
-        "party",
-        "city",
-        "county",
-        "address",
-    ),
-}
 
 
 def _token_set(text: str) -> set[str]:
@@ -235,20 +242,21 @@ def _jaccard(a: set[str], b: set[str]) -> float:
     return len(a & b) / union
 
 
-def _relevance_score(stage_name: str, text: str) -> float:
+def _relevance_score(stage_name: str, text: str, doc_type: DocumentType) -> float:
     tokens = _token_set(text)
     if not tokens:
         return 0.0
-    keywords = _STAGE_KEYWORDS.get(stage_name, ())
+    keywords = _get_stage_keywords(stage_name, doc_type)
     if not keywords:
         return min(1.0, len(tokens) / 200.0)
-    hit_count = sum(1 for keyword in keywords if keyword in tokens)
+    text_lower = text.lower()
+    hit_count = sum(1 for keyword in keywords if keyword.lower() in text_lower)
     keyword_score = hit_count / max(1, len(keywords))
     richness = min(1.0, len(tokens) / 200.0)
     return (0.75 * keyword_score) + (0.25 * richness)
 
 
-def _select_chunks_for_stage(chunks: list[Chunk], stage_name: str, llm_cfg: dict) -> list[Chunk]:
+def _select_chunks_for_stage(chunks: list[Chunk], stage_name: str, llm_cfg: dict, doc_type: DocumentType) -> list[Chunk]:
     selection_cfg = llm_cfg.get("chunk_selection", {}) if isinstance(llm_cfg, dict) else {}
     max_chunks = int(selection_cfg.get("max_chunks_per_stage", 0) or 0)
     if max_chunks <= 0 or max_chunks >= len(chunks):
@@ -262,7 +270,7 @@ def _select_chunks_for_stage(chunks: list[Chunk], stage_name: str, llm_cfg: dict
         {
             "chunk": chunk,
             "tokens": _token_set(chunk.text or ""),
-            "relevance": _relevance_score(stage_name, chunk.text or ""),
+            "relevance": _relevance_score(stage_name, chunk.text or "", doc_type),
         }
         for chunk in chunks
     ]
@@ -295,6 +303,7 @@ def _run_chunk_calls(
     *,
     chunks: list[Chunk],
     stage_name: str,
+    doc_type: DocumentType,
     llm_cfg: dict,
     build_prompt,
 ):
@@ -307,7 +316,7 @@ def _run_chunk_calls(
     active_model_idx = 0
     active_model = models[0] if models else "gpt-4o"
 
-    ordered_chunks = _select_chunks_for_stage(chunks, stage_name, llm_cfg)
+    ordered_chunks = _select_chunks_for_stage(chunks, stage_name, llm_cfg, doc_type)
     for chunk in ordered_chunks:
         chunk_done = False
         last_error: Exception | None = None
@@ -395,11 +404,12 @@ def _extract_entities_impl(db: Session, document: Document, run: ExtractionRun, 
     entities = db.query(Entity).all()
 
     def _build(model: str, chunk: Chunk) -> str:
-        return _build_prompt("entity_extraction", chunk, document)
+        return _build_extraction_prompt("entity_extraction", chunk, document)
 
     model_used, outputs, errors = _run_chunk_calls(
         chunks=chunks,
         stage_name="entity_extraction",
+        doc_type=document.doc_type,
         llm_cfg=llm_cfg,
         build_prompt=_build,
     )
@@ -440,7 +450,7 @@ def _extract_entities_impl(db: Session, document: Document, run: ExtractionRun, 
     return {
         "run_id": str(run.id),
         "model_used": model_used,
-        "selected_chunk_count": len(_select_chunks_for_stage(chunks, "entity_extraction", llm_cfg)),
+        "selected_chunk_count": len(_select_chunks_for_stage(chunks, "entity_extraction", llm_cfg, document.doc_type)),
         "mention_count": success_count,
         "error_count": len(errors),
         "run_status": run.status.value,
@@ -457,14 +467,16 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
     entities = db.query(Entity).all()
 
     def _build(model: str, chunk: Chunk) -> str:
-        return _build_prompt("obligation_extraction", chunk, document)
+        return _build_extraction_prompt("obligation_extraction", chunk, document)
 
     model_used, outputs, errors = _run_chunk_calls(
         chunks=chunks,
         stage_name="obligation_extraction",
+        doc_type=document.doc_type,
         llm_cfg=llm_cfg,
         build_prompt=_build,
     )
+    aliases = _get_obligation_aliases(document.doc_type)
 
     success_count = 0
     for item in outputs:
@@ -487,7 +499,7 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
             raw_obligation_type = entry.get("obligation_type")
             if isinstance(raw_obligation_type, str):
                 normalized = raw_obligation_type.strip().lower()
-                raw_obligation_type = _OBLIGATION_TYPE_ALIASES.get(normalized, normalized)
+                raw_obligation_type = aliases.get(normalized, normalized)
             obligation_type = _coerce_enum(raw_obligation_type, ObligationType, ObligationType.other)
             modality = _coerce_enum(entry.get("modality"), Modality, Modality.unknown)
             severity = _coerce_enum(entry.get("severity"), Severity, Severity.medium)
@@ -521,7 +533,9 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
     return {
         "run_id": str(run.id),
         "model_used": model_used,
-        "selected_chunk_count": len(_select_chunks_for_stage(chunks, "obligation_extraction", llm_cfg)),
+        "selected_chunk_count": len(
+            _select_chunks_for_stage(chunks, "obligation_extraction", llm_cfg, document.doc_type)
+        ),
         "obligation_count": success_count,
         "error_count": len(errors),
         "run_status": run.status.value,
@@ -537,11 +551,12 @@ def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm
     )
 
     def _build(model: str, chunk: Chunk) -> str:
-        return _build_prompt("risk_extraction", chunk, document)
+        return _build_extraction_prompt("risk_extraction", chunk, document)
 
     model_used, outputs, errors = _run_chunk_calls(
         chunks=chunks,
         stage_name="risk_extraction",
+        doc_type=document.doc_type,
         llm_cfg=llm_cfg,
         build_prompt=_build,
     )
@@ -588,7 +603,7 @@ def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm
     return {
         "run_id": str(run.id),
         "model_used": model_used,
-        "selected_chunk_count": len(_select_chunks_for_stage(chunks, "risk_extraction", llm_cfg)),
+        "selected_chunk_count": len(_select_chunks_for_stage(chunks, "risk_extraction", llm_cfg, document.doc_type)),
         "risk_count": success_count,
         "error_count": len(errors),
         "run_status": run.status.value,

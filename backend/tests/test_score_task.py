@@ -26,6 +26,22 @@ from backend.app.models import (
 from backend.app.worker.tasks import score as score_task
 
 
+SCORING_DOMAINS = {
+    "financial": {
+        "doc_types": ["insurance_policy", "loan_agreement", "deed_of_trust"],
+        "doc_type_aligned": {
+            "insurance_policy": ["payment", "compliance", "notification"],
+            "loan_agreement": ["payment", "compliance", "submission"],
+            "deed_of_trust": ["payment", "compliance"],
+        },
+    },
+    "general": {
+        "doc_types": ["unknown"],
+        "doc_type_aligned": {},
+    },
+}
+
+
 class FakeQuery:
     def __init__(self, session: "FakeSession", model):
         self._session = session
@@ -205,6 +221,54 @@ def _make_risk_evidence(document_id: uuid.UUID, risk_id: uuid.UUID, source: Text
         normalized_char_end=10,
         source=source,
     )
+
+
+def test_doc_type_aligned_insurance_policy_payment_true(monkeypatch):
+    monkeypatch.setattr(score_task, "settings", types.SimpleNamespace(raw={"domains": SCORING_DOMAINS}))
+    assert score_task._doc_type_aligned(DocumentType.insurance_policy, ObligationType.payment)
+
+
+def test_doc_type_aligned_deed_of_trust_submission_false(monkeypatch):
+    monkeypatch.setattr(score_task, "settings", types.SimpleNamespace(raw={"domains": SCORING_DOMAINS}))
+    assert not score_task._doc_type_aligned(DocumentType.deed_of_trust, ObligationType.submission)
+
+
+def test_doc_type_aligned_unknown_always_true(monkeypatch):
+    monkeypatch.setattr(score_task, "settings", types.SimpleNamespace(raw={"domains": SCORING_DOMAINS}))
+    assert score_task._doc_type_aligned(DocumentType.unknown, ObligationType.inspection)
+
+
+def test_score_insurance_policy_payment_obligation_awards_alignment_bonus(monkeypatch):
+    payment_document = _make_document(DocumentType.insurance_policy)
+    payment_obligation = _make_obligation(payment_document.id, obligation_type=ObligationType.payment)
+    payment_evidence = _make_obligation_evidence(payment_document.id, payment_obligation.id, TextSource.pdf_text)
+    payment_db = FakeSession(
+        document=payment_document,
+        obligations=[payment_obligation],
+        obligation_evidence=[payment_evidence],
+    )
+
+    monkeypatch.setattr(score_task, "settings", types.SimpleNamespace(raw={"domains": SCORING_DOMAINS, "scoring": {}}))
+    monkeypatch.setattr(score_task, "SessionLocal", lambda: payment_db)
+    monkeypatch.setattr(score_task, "update_parse_status", lambda *_a, **_k: None)
+    score_task.score_extractions(payment_document.id)
+    payment_score = payment_obligation.system_confidence
+
+    submission_document = _make_document(DocumentType.insurance_policy)
+    submission_obligation = _make_obligation(submission_document.id, obligation_type=ObligationType.submission)
+    submission_evidence = _make_obligation_evidence(submission_document.id, submission_obligation.id, TextSource.pdf_text)
+    submission_db = FakeSession(
+        document=submission_document,
+        obligations=[submission_obligation],
+        obligation_evidence=[submission_evidence],
+    )
+
+    monkeypatch.setattr(score_task, "SessionLocal", lambda: submission_db)
+    score_task.score_extractions(submission_document.id)
+    submission_score = submission_obligation.system_confidence
+
+    assert payment_score == 90
+    assert submission_score == 80
 
 
 def test_score_obligation_full_positive_score(monkeypatch):

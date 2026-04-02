@@ -31,6 +31,33 @@ from backend.app.models import (
 from backend.app.worker.tasks import extract as extract_task
 
 
+FINANCIAL_DOMAINS = {
+    "financial": {
+        "doc_types": ["insurance_policy", "loan_agreement", "deed_of_trust"],
+        "stage_keywords": {
+            "obligation_extraction": ["premium", "repayment", "borrower", "lender"],
+            "risk_extraction": ["default", "foreclosure", "exclusion", "lapse"],
+            "entity_extraction": ["borrower", "lender", "insurer", "trustee"],
+        },
+        "obligation_aliases": {"delivery": "submission", "maintenance": "inspection"},
+        "vocab_preambles": {
+            "obligation_extraction": "This is a financial/insurance document.",
+            "risk_extraction": "This is a financial/insurance document.",
+        },
+    },
+    "general": {
+        "doc_types": ["unknown"],
+        "stage_keywords": {
+            "obligation_extraction": ["shall", "must"],
+            "risk_extraction": ["penalty", "breach"],
+            "entity_extraction": ["party"],
+        },
+        "obligation_aliases": {},
+        "vocab_preambles": {},
+    },
+}
+
+
 class FakeQuery:
     def __init__(self, session: "FakeSession", model):
         self._session = session
@@ -165,6 +192,42 @@ def _make_chunk(document_id: uuid.UUID, page: int, text: str) -> Chunk:
         chunk_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
         split_reason=SplitReason.full_page,
     )
+
+
+def test_get_stage_keywords_returns_domain_keywords(monkeypatch):
+    monkeypatch.setattr(extract_task, "settings", types.SimpleNamespace(raw={"domains": FINANCIAL_DOMAINS}))
+    keywords = extract_task._get_stage_keywords("obligation_extraction", DocumentType.loan_agreement)
+    assert "premium" in keywords
+    assert "borrower" in keywords
+
+
+def test_get_stage_keywords_falls_back_to_general(monkeypatch):
+    monkeypatch.setattr(extract_task, "settings", types.SimpleNamespace(raw={"domains": FINANCIAL_DOMAINS}))
+    keywords = extract_task._get_stage_keywords("obligation_extraction", DocumentType.unknown)
+    assert "shall" in keywords
+
+
+def test_get_obligation_aliases_returns_domain_aliases(monkeypatch):
+    monkeypatch.setattr(extract_task, "settings", types.SimpleNamespace(raw={"domains": FINANCIAL_DOMAINS}))
+    aliases = extract_task._get_obligation_aliases(DocumentType.insurance_policy)
+    assert aliases.get("delivery") == "submission"
+    assert aliases.get("maintenance") == "inspection"
+
+
+def test_vocab_preamble_injected_into_obligation_prompt(monkeypatch):
+    monkeypatch.setattr(extract_task, "settings", types.SimpleNamespace(raw={"domains": FINANCIAL_DOMAINS}))
+    chunk = _make_chunk(uuid.uuid4(), 1, "The borrower shall repay the principal.")
+    document = _make_document(DocumentType.loan_agreement)
+    prompt = extract_task._build_extraction_prompt("obligation_extraction", chunk, document)
+    assert "financial/insurance document" in prompt
+
+
+def test_vocab_preamble_absent_for_unknown(monkeypatch):
+    monkeypatch.setattr(extract_task, "settings", types.SimpleNamespace(raw={"domains": FINANCIAL_DOMAINS}))
+    chunk = _make_chunk(uuid.uuid4(), 1, "Some text.")
+    document = _make_document(DocumentType.unknown)
+    prompt = extract_task._build_extraction_prompt("obligation_extraction", chunk, document)
+    assert "financial/insurance document" not in prompt
 
 
 def test_risk_type_enum_has_prompt_categories():

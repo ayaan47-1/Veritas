@@ -98,7 +98,7 @@ class FakeSession:
         return None
 
 
-def _make_document() -> Document:
+def _make_document(doc_type: DocumentType = DocumentType.contract, domain: str | None = None) -> Document:
     return Document(
         id=uuid.uuid4(),
         asset_id=uuid.uuid4(),
@@ -108,7 +108,8 @@ def _make_document() -> Document:
         mime_type="application/pdf",
         uploaded_by=uuid.uuid4(),
         parse_status=ParseStatus.scoring,
-        doc_type=DocumentType.contract,
+        doc_type=doc_type,
+        domain=domain,
         scanned_page_count=0,
     )
 
@@ -380,3 +381,21 @@ def test_rescore_builds_prompt_with_item_context(monkeypatch):
     assert str(risk.id) in calls[0][1]
     assert "Pay retainage" in calls[0][1]
     assert "Missed deadline penalty" in calls[0][1]
+
+
+def test_rescore_prompt_uses_financial_persona_for_deed_of_trust():
+    document = _make_document(doc_type=DocumentType.deed_of_trust, domain="financial")
+    prompt = rescore_task._build_rescore_prompt(document, obligations=[], risks=[])
+    assert "financial compliance analyst" in prompt
+
+
+def test_rescore_prompt_uses_real_estate_persona():
+    document = _make_document(doc_type=DocumentType.purchase_agreement, domain="real_estate")
+    prompt = rescore_task._build_rescore_prompt(document, obligations=[], risks=[])
+    assert "real estate attorney" in prompt
+
+
+def test_rescore_prompt_defaults_to_document_analyst_when_domain_none():
+    document = _make_document(doc_type=DocumentType.unknown, domain=None)
+    prompt = rescore_task._build_rescore_prompt(document, obligations=[], risks=[])
+    assert "document analyst" in prompt

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 import re
 import time
 import uuid
@@ -20,6 +21,10 @@ from ...models import (
     PromptVersion,
 )
 from ._helpers import update_parse_status
+
+logger = logging.getLogger(__name__)
+
+_WARNED_MISSING_DOMAINS = False
 
 
 def call_classification_llm(*, model: str, prompt: str) -> dict:
@@ -56,39 +61,56 @@ def _extract_sample_pages(db: Session, document_id: uuid.UUID, limit: int) -> li
     return sample
 
 
+def _domains_config() -> dict[str, dict]:
+    global _WARNED_MISSING_DOMAINS
+    domains = settings.raw.get("domains", {})
+    if isinstance(domains, dict):
+        if not domains and not _WARNED_MISSING_DOMAINS:
+            logger.warning("Missing 'domains' config; classification is using fallback defaults")
+            _WARNED_MISSING_DOMAINS = True
+        return domains
+
+    if not _WARNED_MISSING_DOMAINS:
+        logger.warning("Invalid 'domains' config; classification is using fallback defaults")
+        _WARNED_MISSING_DOMAINS = True
+    return {}
+
+
+def _domain_for_doc_type(doc_type: DocumentType) -> str:
+    for domain_name, domain_data in _domains_config().items():
+        if doc_type.value in domain_data.get("doc_types", []):
+            return domain_name
+    return "general"
+
+
 def _heuristics_match(doc_type: DocumentType, text_blob: str) -> bool:
     text = text_blob.lower()
-
-    if doc_type == DocumentType.invoice:
-        has_currency = bool(re.search(r"\$\s?\d", text))
-        return has_currency or any(token in text for token in ["usd", "amount", "total", "invoice"])
-
-    if doc_type == DocumentType.inspection_report:
-        return any(token in text for token in ["inspect", "examin", "assess", "finding"])
-
-    if doc_type == DocumentType.lease:
-        return any(token in text for token in ["tenant", "landlord", "rent", "lease", "lessee", "lessor", "tenancy"])
-
-    if doc_type == DocumentType.contract:
-        return any(token in text for token in ["agree", "party", "parties", "shall", "obligation"])
-
-    if doc_type == DocumentType.rfi:
-        return any(token in text for token in ["request for information", "clarification", "rfi"])
-
-    if doc_type == DocumentType.change_order:
-        return any(token in text for token in ["change order", "modification", "amendment"])
-
     if doc_type == DocumentType.unknown:
         return True
+
+    # Keep invoice currency as a regex special case; it is not a fixed keyword token.
+    if doc_type == DocumentType.invoice:
+        if re.search(r"\$\s?\d", text):
+            return True
+
+    for domain_data in _domains_config().values():
+        tokens = domain_data.get("heuristics", {}).get(doc_type.value, [])
+        if tokens and any(token in text for token in tokens):
+            return True
 
     return False
 
 
 def _build_prompt(sample_pages: list[str]) -> str:
+    all_types: list[str] = []
+    for domain_data in _domains_config().values():
+        all_types.extend(domain_data.get("doc_types", []))
+    if not all_types:
+        all_types = [doc_type.value for doc_type in DocumentType]
+    type_list = ", ".join(sorted(set(all_types)))
     joined = "\n\n".join(sample_pages)[:12000]
     return (
-        "Classify the document type as one of: contract, lease, inspection_report, rfi, "
-        "change_order, invoice, unknown. Return compact JSON: "
+        f"Classify the document type as one of: {type_list}. Return compact JSON: "
         '{"doc_type":"...","confidence":0.0,"explanation":"..."}.\n\n'
         f"Document excerpts:\n{joined}"
     )
@@ -188,6 +210,7 @@ def classify_document(document_id: str) -> dict[str, object]:
 
         if response is None:
             document.doc_type = DocumentType.unknown
+            document.domain = _domain_for_doc_type(DocumentType.unknown)
             document.doc_type_confidence = None
             run.status = ExtractionStatus.failed
             run.error = str(error)[:1000] if error else "classification_failed"
@@ -219,14 +242,18 @@ def classify_document(document_id: str) -> dict[str, object]:
         heuristics_agree = _heuristics_match(detected_type, joined_text)
 
         if detected_type != DocumentType.unknown and heuristics_agree:
-            document.doc_type = detected_type
-            document.doc_type_confidence = confidence
+            final_doc_type = detected_type
+            final_confidence = confidence
         elif detected_type == DocumentType.unknown:
-            document.doc_type = DocumentType.unknown
-            document.doc_type_confidence = confidence
+            final_doc_type = DocumentType.unknown
+            final_confidence = confidence
         else:
-            document.doc_type = DocumentType.unknown
-            document.doc_type_confidence = None
+            final_doc_type = DocumentType.unknown
+            final_confidence = None
+
+        document.doc_type = final_doc_type
+        document.doc_type_confidence = final_confidence
+        document.domain = _domain_for_doc_type(final_doc_type)
 
         run.status = ExtractionStatus.completed
         run.model_used = model_used or run.model_used

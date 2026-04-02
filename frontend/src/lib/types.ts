@@ -15,11 +15,14 @@ export type Asset = {
   document_count?: number;
   obligation_count?: number;
   risk_count?: number;
+  pending_review_count?: number;
 };
 
 export type Obligation = {
   id: string;
   document_id: string;
+  domain?: string | null;
+  document_domain?: string | null;
   obligation_type: string;
   obligation_text: string;
   modality: string;
@@ -72,6 +75,7 @@ export type DocumentSummary = {
   asset_id: string;
   source_name: string;
   doc_type: string;
+  domain: string | null;
   parse_status: string;
   uploaded_by: string;
   uploaded_at: string | null;
@@ -86,6 +90,7 @@ export type DocumentDetail = {
   mime_type: string;
   uploaded_at: string | null;
   doc_type: string;
+  domain: string | null;
   parse_status: string;
   total_pages: number | null;
   scanned_page_count: number;

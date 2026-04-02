@@ -18,7 +18,8 @@ import type {
 
 type GetTokenFn = () => Promise<string | null>;
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+const REQUEST_TIMEOUT_MS = 15000;
 
 class ApiError extends Error {
   status: number;
@@ -39,15 +40,29 @@ async function apiFetch<T>(
     throw new ApiError("Missing auth token", 401);
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
-      ...(init.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...(init.headers ?? {}),
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`, 504);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`;
@@ -234,13 +249,27 @@ export async function ingestDocument(
   formData.set("auto_process", String(Boolean(payload.autoProcess)));
   formData.set("file", payload.file);
 
-  const response = await fetch(`${API_BASE}/ingest`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    body: formData,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/ingest`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`, 504);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`;

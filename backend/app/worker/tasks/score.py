@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 
@@ -22,6 +23,10 @@ from ...models import (
     TextSource,
 )
 from ._helpers import update_parse_status
+
+logger = logging.getLogger(__name__)
+
+_WARNED_MISSING_DOMAINS = False
 
 
 _DEADLINE_RE = re.compile(r"\b(by|before|within|no later than|after|days?|weeks?|months?)\b", re.IGNORECASE)
@@ -65,9 +70,29 @@ def _score_config() -> tuple[dict[str, int], dict[str, int]]:
     return weights, penalties
 
 
+def _domains_config() -> dict[str, dict]:
+    global _WARNED_MISSING_DOMAINS
+    domains = settings.raw.get("domains", {})
+    if isinstance(domains, dict):
+        if not domains and not _WARNED_MISSING_DOMAINS:
+            logger.warning("Missing 'domains' config; score alignment is using fallback defaults")
+            _WARNED_MISSING_DOMAINS = True
+        return domains
+
+    if not _WARNED_MISSING_DOMAINS:
+        logger.warning("Invalid 'domains' config; score alignment is using fallback defaults")
+        _WARNED_MISSING_DOMAINS = True
+    return {}
+
+
 def _doc_type_aligned(doc_type: DocumentType, obligation_type: ObligationType) -> bool:
-    if doc_type == DocumentType.invoice:
-        return obligation_type == ObligationType.payment
+    for domain_data in _domains_config().values():
+        aligned_map = domain_data.get("doc_type_aligned", {})
+        if doc_type.value in aligned_map:
+            expected = aligned_map[doc_type.value]
+            if not expected:
+                return True
+            return obligation_type.value in expected
     return True
 
 

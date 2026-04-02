@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import uuid
+from collections import defaultdict
 from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..auth.deps import require_admin, require_asset_scope, require_authenticated
@@ -23,6 +24,7 @@ from ..models import (
     ObligationContradiction,
     ObligationReview,
     ParseStatus,
+    ReviewStatus,
     Risk,
     RiskReview,
     UserAssetAssignment,
@@ -54,6 +56,7 @@ def _serialize_document(document: Document) -> dict:
         "asset_id": str(document.asset_id),
         "source_name": document.source_name,
         "doc_type": document.doc_type.value,
+        "domain": document.domain,
         "parse_status": document.parse_status.value,
         "uploaded_by": str(document.uploaded_by),
         "uploaded_at": document.uploaded_at.isoformat() if document.uploaded_at else None,
@@ -70,7 +73,64 @@ def list_assets(user_id: UUID | None = Query(default=None), db: Session = Depend
             UserAssetAssignment.user_id == user_id
         )
     assets = query.order_by(Asset.name.asc()).all()
-    return {"items": [_serialize_asset(asset) for asset in assets], "next_cursor": None}
+
+    asset_ids = [asset.id for asset in assets]
+    if not asset_ids:
+        return {"items": [], "next_cursor": None}
+
+    document_counts = defaultdict(int)
+    obligation_counts = defaultdict(int)
+    risk_counts = defaultdict(int)
+    pending_review_counts = defaultdict(int)
+
+    for asset_id, count in (
+        db.query(Document.asset_id, func.count(Document.id))
+        .filter(Document.asset_id.in_(asset_ids))
+        .group_by(Document.asset_id)
+        .all()
+    ):
+        document_counts[asset_id] = int(count)
+
+    for asset_id, count in (
+        db.query(Document.asset_id, func.count(Obligation.id))
+        .join(Obligation, Obligation.document_id == Document.id)
+        .filter(Document.asset_id.in_(asset_ids))
+        .group_by(Document.asset_id)
+        .all()
+    ):
+        obligation_counts[asset_id] = int(count)
+
+    for asset_id, count in (
+        db.query(Document.asset_id, func.count(Risk.id))
+        .join(Risk, Risk.document_id == Document.id)
+        .filter(Document.asset_id.in_(asset_ids))
+        .group_by(Document.asset_id)
+        .all()
+    ):
+        risk_counts[asset_id] = int(count)
+
+    for asset_id, count in (
+        db.query(Document.asset_id, func.count(Obligation.id))
+        .join(Obligation, Obligation.document_id == Document.id)
+        .filter(
+            Document.asset_id.in_(asset_ids),
+            Obligation.status == ReviewStatus.needs_review,
+        )
+        .group_by(Document.asset_id)
+        .all()
+    ):
+        pending_review_counts[asset_id] = int(count)
+
+    items: list[dict] = []
+    for asset in assets:
+        payload = _serialize_asset(asset)
+        payload["document_count"] = document_counts[asset.id]
+        payload["obligation_count"] = obligation_counts[asset.id]
+        payload["risk_count"] = risk_counts[asset.id]
+        payload["pending_review_count"] = pending_review_counts[asset.id]
+        items.append(payload)
+
+    return {"items": items, "next_cursor": None}
 
 
 @router.post("", dependencies=[Depends(require_admin)])

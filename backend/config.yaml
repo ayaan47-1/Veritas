@@ -21,7 +21,7 @@ chunking:
   max_chars: 4000
 
 inngest:
-  # Dev server: npx inngest-cli@latest dev -u http://localhost:8000/api/inngest
+  # Dev server: npx inngest-cli@latest dev -u http://localhost:8001/api/inngest
   # Self-hosted prod: docker run -p 8288:8288 inngest/inngest
   retries: 2
 
@@ -39,6 +39,333 @@ llm:
 
 ocr:
   min_raw_text_chars: 50
+
+domains:
+  construction:
+    doc_types:
+      - contract
+      - rfi
+      - change_order
+      - invoice
+    heuristics:
+      contract:
+        - agree
+        - party
+        - parties
+        - shall
+        - obligation
+      rfi:
+        - request for information
+        - clarification
+        - rfi
+      change_order:
+        - change order
+        - modification
+        - amendment
+      invoice:
+        - invoice
+        - amount
+        - total
+        - usd
+    stage_keywords:
+      obligation_extraction:
+        - shall
+        - must
+        - required
+        - within
+        - deadline
+        - deliver
+        - submit
+        - payment
+        - comply
+      risk_extraction:
+        - penalty
+        - damages
+        - liquidated
+        - indemnif
+        - bond
+        - insurance
+        - risk
+        - breach
+        - liable
+        - delay
+        - default
+        - terminate
+        - non-compliance
+      entity_extraction:
+        - llc
+        - inc
+        - company
+        - contractor
+        - owner
+        - party
+        - city
+        - county
+        - address
+    obligation_aliases:
+      delivery: submission
+      maintenance: inspection
+      reporting: compliance
+    vocab_preambles:
+      obligation_extraction: >
+        This is a construction industry document. Focus on contractual duties,
+        scope obligations, schedule milestones, submittal requirements, and
+        payment obligations typical of AIA/ConsensusDocs forms.
+      risk_extraction: >
+        This is a construction industry document. Focus on liquidated damages,
+        retainage clauses, indemnification, insurance requirements, delay
+        penalties, and lien exposure.
+    doc_type_aligned:
+      invoice:
+        - payment
+      contract:
+        - compliance
+        - submission
+        - payment
+        - notification
+      rfi:
+        - submission
+        - notification
+      change_order:
+        - payment
+        - submission
+
+  real_estate:
+    doc_types:
+      - lease
+      - inspection_report
+      - purchase_agreement
+      - title_commitment
+      - hoa_document
+      - disclosure_report
+    heuristics:
+      lease:
+        - tenant
+        - landlord
+        - rent
+        - lease
+        - lessee
+        - lessor
+        - tenancy
+      inspection_report:
+        - inspect
+        - examin
+        - assess
+        - finding
+      purchase_agreement:
+        - purchase price
+        - buyer
+        - seller
+        - closing
+        - contingency
+        - escrow
+      title_commitment:
+        - title insurance
+        - commitment
+        - title defect
+        - encumbrance
+        - schedule b
+      hoa_document:
+        - homeowner
+        - association
+        - assessment
+        - cc&r
+        - bylaw
+        - common area
+      disclosure_report:
+        - disclosure
+        - lead
+        - mold
+        - environmental
+        - seller disclosure
+    stage_keywords:
+      obligation_extraction:
+        - shall
+        - must
+        - required
+        - tenant
+        - landlord
+        - buyer
+        - seller
+        - closing
+        - assessment
+        - disclose
+      risk_extraction:
+        - defect
+        - encumbrance
+        - lien
+        - default
+        - breach
+        - eviction
+        - easement
+        - hazard
+        - contamination
+      entity_extraction:
+        - buyer
+        - seller
+        - tenant
+        - landlord
+        - association
+        - title company
+        - escrow
+    obligation_aliases:
+      delivery: submission
+      maintenance: inspection
+      reporting: compliance
+    vocab_preambles:
+      obligation_extraction: >
+        This is a real estate document. Focus on closing conditions, inspection
+        contingencies, HOA assessments, disclosure requirements, rent payment
+        terms, and title clearance obligations.
+      risk_extraction: >
+        This is a real estate document. Focus on title defects, encumbrances,
+        environmental hazards, HOA violations, lease default triggers, and
+        disclosure liability.
+    doc_type_aligned:
+      lease:
+        - payment
+        - compliance
+        - notification
+      inspection_report:
+        - inspection
+        - compliance
+      purchase_agreement:
+        - payment
+        - submission
+        - compliance
+      title_commitment:
+        - compliance
+        - submission
+      hoa_document:
+        - payment
+        - compliance
+      disclosure_report:
+        - compliance
+        - notification
+
+  financial:
+    doc_types:
+      - insurance_policy
+      - loan_agreement
+      - deed_of_trust
+    heuristics:
+      insurance_policy:
+        - insured
+        - insurer
+        - premium
+        - coverage
+        - deductible
+        - policyholder
+        - claim
+      loan_agreement:
+        - borrower
+        - lender
+        - promissory
+        - principal
+        - interest rate
+        - repayment
+        - maturity
+      deed_of_trust:
+        - trustor
+        - trustee
+        - beneficiary
+        - deed of trust
+        - mortgage
+        - security instrument
+        - encumber
+    stage_keywords:
+      obligation_extraction:
+        - shall
+        - must
+        - required
+        - premium
+        - repayment
+        - payment
+        - insured
+        - borrower
+        - lender
+        - covenants
+        - maintain
+        - disclose
+      risk_extraction:
+        - default
+        - foreclosure
+        - acceleration
+        - claim denial
+        - exclusion
+        - subrogation
+        - lapse
+        - non-payment
+        - breach
+        - penalty
+        - liability
+      entity_extraction:
+        - borrower
+        - lender
+        - insurer
+        - insured
+        - trustee
+        - beneficiary
+        - mortgagee
+    obligation_aliases:
+      delivery: submission
+      maintenance: inspection
+      reporting: compliance
+    vocab_preambles:
+      obligation_extraction: >
+        This is a financial/insurance document. Focus on premium payment
+        obligations, loan repayment schedules, covenant compliance requirements,
+        insurance maintenance duties, and disclosure obligations to the lender
+        or insurer.
+      risk_extraction: >
+        This is a financial/insurance document. Focus on default and
+        acceleration clauses, foreclosure triggers, claim exclusions, coverage
+        lapses, subrogation rights, and personal liability exposure.
+    doc_type_aligned:
+      insurance_policy:
+        - payment
+        - compliance
+        - notification
+      loan_agreement:
+        - payment
+        - compliance
+        - submission
+      deed_of_trust:
+        - payment
+        - compliance
+
+  general:
+    doc_types:
+      - unknown
+    heuristics:
+      unknown: []
+    stage_keywords:
+      obligation_extraction:
+        - shall
+        - must
+        - required
+        - within
+        - deadline
+      risk_extraction:
+        - penalty
+        - damages
+        - risk
+        - breach
+        - default
+      entity_extraction:
+        - company
+        - party
+        - address
+    obligation_aliases:
+      delivery: submission
+      maintenance: inspection
+      reporting: compliance
+    vocab_preambles:
+      obligation_extraction: >
+        Extract all obligations, duties, and requirements from this document.
+      risk_extraction: >
+        Extract all risks, liabilities, and penalty clauses from this document.
+    doc_type_aligned: {}
 
 scoring:
   weights:

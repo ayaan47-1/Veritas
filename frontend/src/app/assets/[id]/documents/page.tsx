@@ -8,8 +8,37 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { deleteDocument, getAssetDocuments, getCurrentUser, ingestDocument, processDocument } from "@/lib/api";
 import type { CurrentUser, DocumentSummary } from "@/lib/types";
 
-const DOC_TYPES = ["all", "contract", "lease", "invoice", "inspection_report", "rfi", "change_order", "unknown"] as const;
+const DOC_TYPES = [
+  "all",
+  "contract",
+  "lease",
+  "invoice",
+  "inspection_report",
+  "rfi",
+  "change_order",
+  "purchase_agreement",
+  "title_commitment",
+  "hoa_document",
+  "disclosure_report",
+  "insurance_policy",
+  "loan_agreement",
+  "deed_of_trust",
+  "unknown",
+] as const;
 const PARSE_STATUSES = ["all", "uploaded", "parsing", "ocr", "chunking", "classification", "extraction", "verification", "scoring", "complete", "partially_processed", "failed"] as const;
+
+function domainBadgeStyle(domain: string | null) {
+  if (domain === "real_estate") {
+    return { background: "var(--success-subtle)", color: "var(--success)", borderColor: "var(--success)" };
+  }
+  if (domain === "financial") {
+    return { background: "var(--info-subtle)", color: "var(--info)", borderColor: "var(--info)" };
+  }
+  if (domain === "construction") {
+    return { background: "var(--bg-subtle)", color: "var(--text-secondary)", borderColor: "var(--border-strong)" };
+  }
+  return { background: "var(--bg-subtle)", color: "var(--text-secondary)", borderColor: "var(--border)" };
+}
 
 export default function AssetDocumentsPage() {
   const { getToken } = useAuth();
@@ -224,6 +253,7 @@ export default function AssetDocumentsPage() {
                 <tr className="border-b border-border bg-bg-subtle">
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Name</th>
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Doc Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Domain</th>
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Parse Status</th>
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Uploaded At</th>
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Pages</th>
@@ -239,6 +269,14 @@ export default function AssetDocumentsPage() {
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-text-secondary">{document.doc_type}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        style={domainBadgeStyle(document.domain)}
+                        className="inline-flex rounded-full border px-2.5 py-1 text-xs font-medium"
+                      >
+                        {document.domain ?? "—"}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-text-secondary">{document.parse_status}</td>
                     <td className="px-4 py-3 text-text-secondary">
                       {document.uploaded_at ? document.uploaded_at.replace("T", " ").slice(0, 19) : "—"}

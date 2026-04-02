@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
 
-import { createAsset, deleteAsset, getAssets, getCurrentUser, getObligations } from "@/lib/api";
+import { createAsset, deleteAsset, getAssets, getCurrentUser } from "@/lib/api";
 import type { Asset, CurrentUser } from "@/lib/types";
 
 type AssetCard = Asset & { pendingReviews: number };
@@ -27,29 +27,16 @@ export default function Home() {
     async function loadData() {
       setIsLoading(true);
       setError(null);
+
       try {
-        const [user, assetResponse] = await Promise.all([
-          getCurrentUser(getToken),
-          getAssets(getToken),
-        ]);
-        if (!cancelled) setCurrentUser(user);
-        const cards = await Promise.all(
-          assetResponse.items.map(async (asset) => {
-            try {
-              const pending = await getObligations(getToken, {
-                assetId: asset.id,
-                status: "needs_review",
-                limit: 200,
-                cursor: 0,
-              });
-              return { ...asset, pendingReviews: pending.items.length };
-            } catch {
-              return { ...asset, pendingReviews: 0 };
-            }
-          }),
-        );
+        const assetResponse = await getAssets(getToken);
         if (!cancelled) {
-          setAssets(cards);
+          setAssets(
+            assetResponse.items.map((asset) => ({
+              ...asset,
+              pendingReviews: asset.pending_review_count ?? 0,
+            })),
+          );
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -60,6 +47,15 @@ export default function Home() {
         if (!cancelled) {
           setIsLoading(false);
         }
+      }
+
+      try {
+        const user = await getCurrentUser(getToken);
+        if (!cancelled) {
+          setCurrentUser(user);
+        }
+      } catch {
+        // Keep assets visible even if user/profile lookup is delayed.
       }
     }
     void loadData();
@@ -192,6 +188,9 @@ export default function Home() {
               </article>
             ))}
           </section>
+        ) : null}
+        {!isLoading && !error && assets.length === 0 ? (
+          <p className="mt-2 text-sm text-text-secondary">No assets yet.</p>
         ) : null}
       </div>
 

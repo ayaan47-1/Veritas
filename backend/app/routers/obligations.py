@@ -47,10 +47,19 @@ def _serialize_evidence(evidence: ObligationEvidence) -> dict:
     }
 
 
-def _serialize_obligation(obligation: Obligation, *, evidence: list[ObligationEvidence] | None = None) -> dict:
+def _serialize_obligation(
+    obligation: Obligation,
+    *,
+    evidence: list[ObligationEvidence] | None = None,
+    document_domain: str | None = None,
+) -> dict:
+    if document_domain is None:
+        document_domain = getattr(getattr(obligation, "document", None), "domain", None)
     payload = {
         "id": str(obligation.id),
         "document_id": str(obligation.document_id),
+        "domain": document_domain,
+        "document_domain": document_domain,
         "obligation_type": obligation.obligation_type.value,
         "obligation_text": obligation.obligation_text,
         "modality": obligation.modality.value,
@@ -97,7 +106,15 @@ def list_obligations(
 
     rows = query.order_by(Obligation.created_at.desc()).offset(cursor).limit(limit + 1).all()
     has_more = len(rows) > limit
-    items = [_serialize_obligation(row) for row in rows[:limit]]
+    page_rows = rows[:limit]
+    document_ids = [row.document_id for row in page_rows]
+    domains_by_document = {
+        row.id: row.domain for row in db.query(Document).filter(Document.id.in_(document_ids)).all()
+    } if document_ids else {}
+    items = [
+        _serialize_obligation(row, document_domain=domains_by_document.get(row.document_id))
+        for row in page_rows
+    ]
     next_cursor = str(cursor + limit) if has_more else None
     return {"items": items, "next_cursor": next_cursor}
 

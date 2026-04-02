@@ -22,6 +22,13 @@ class DocumentType(str, enum.Enum):
     rfi = "rfi"
     change_order = "change_order"
     invoice = "invoice"
+    purchase_agreement = "purchase_agreement"
+    title_commitment = "title_commitment"
+    hoa_document = "hoa_document"
+    disclosure_report = "disclosure_report"
+    insurance_policy = "insurance_policy"
+    loan_agreement = "loan_agreement"
+    deed_of_trust = "deed_of_trust"
     unknown = "unknown"
 
 

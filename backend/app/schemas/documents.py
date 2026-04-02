@@ -20,6 +20,7 @@ class DocumentOut(BaseModel):
     uploaded_by: UUID
     uploaded_at: datetime
     doc_type: DocumentType
+    domain: Optional[str] = None
     doc_type_confidence: Optional[float] = None
     doc_date: Optional[date] = None
     parse_status: ParseStatus

@@ -4,7 +4,8 @@ BACKEND_HOST ?= 0.0.0.0
 BACKEND_PORT ?= 8001
 FRONTEND_PORT ?= 3000
 INGGEST_PORT ?= 8288
-API_URL ?= http://localhost:$(BACKEND_PORT)
+API_URL ?= http://127.0.0.1:$(BACKEND_PORT)
+INNGEST_DEV_MODE ?= 1
 
 POSTGRES_CONTAINER ?= veritas-postgres
 POSTGRES_IMAGE ?= postgres:16
@@ -40,13 +41,13 @@ install: install-backend install-frontend
 
 backend:
 	@lsof -ti:$(BACKEND_PORT) | xargs kill -9 2>/dev/null || true
-	set -a && source backend/.env && set +a && uvicorn backend.app.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)
+	set -a && source backend/.env && set +a && INNGEST_DEV=$(INNGEST_DEV_MODE) uvicorn backend.app.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)
 
 frontend:
 	npm --prefix frontend run dev -- --port $(FRONTEND_PORT)
 
 inngest:
-	npx --yes inngest-cli@latest dev -u $(API_URL)/api/inngest --port $(INGGEST_PORT)
+	npx --yes inngest-cli@latest dev -u $(API_URL)/api/inngest --port $(INGGEST_PORT) --no-discovery
 
 db-up:
 	@if ! command -v docker >/dev/null 2>&1; then \
@@ -83,9 +84,9 @@ dev:
 	@lsof -ti:$(BACKEND_PORT) | xargs kill -9 2>/dev/null || true
 	@set -euo pipefail; \
 	trap 'kill 0' INT TERM EXIT; \
-	(set -a && source backend/.env && set +a && uvicorn backend.app.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)) & \
+	(set -a && source backend/.env && set +a && INNGEST_DEV=$(INNGEST_DEV_MODE) uvicorn backend.app.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)) & \
 	(npm --prefix frontend run dev -- --port $(FRONTEND_PORT)) & \
-	(npx --yes inngest-cli@latest dev -u $(API_URL)/api/inngest --port $(INGGEST_PORT)) & \
+	(npx --yes inngest-cli@latest dev -u $(API_URL)/api/inngest --port $(INGGEST_PORT) --no-discovery) & \
 	wait
 
 dev-all: db-up dev

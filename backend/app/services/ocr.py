@@ -29,7 +29,7 @@ def _load_ocr_config() -> OCRConfig:
     return OCRConfig(
         api_key=api_key,
         endpoint=os.getenv("DEEPINFRA_OLMOCR_URL", "https://api.deepinfra.com/v1/openai/chat/completions"),
-        model=os.getenv("DEEPINFRA_OLMOCR_MODEL", "allenai/olmocr-7b"),
+        model=os.getenv("DEEPINFRA_OLMOCR_MODEL", "allenai/olmOCR-2-7B-1025"),
     )
 
 

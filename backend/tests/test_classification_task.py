@@ -22,6 +22,36 @@ from backend.app.models import (
 from backend.app.worker.tasks import classify as classify_task
 
 
+MINIMAL_DOMAINS = {
+    "construction": {
+        "doc_types": ["contract", "rfi", "invoice"],
+        "heuristics": {
+            "contract": ["agree", "party", "shall"],
+            "rfi": ["request for information", "clarification", "rfi"],
+            "invoice": ["invoice", "amount", "total", "usd"],
+        },
+    },
+    "financial": {
+        "doc_types": ["insurance_policy", "loan_agreement", "deed_of_trust"],
+        "heuristics": {
+            "insurance_policy": ["insured", "premium", "coverage"],
+            "loan_agreement": ["borrower", "lender", "promissory"],
+            "deed_of_trust": ["trustor", "deed of trust", "mortgage"],
+        },
+    },
+    "real_estate": {
+        "doc_types": ["purchase_agreement"],
+        "heuristics": {
+            "purchase_agreement": ["purchase price", "buyer", "closing"],
+        },
+    },
+    "general": {
+        "doc_types": ["unknown"],
+        "heuristics": {"unknown": []},
+    },
+}
+
+
 class FakeQuery:
     def __init__(self, session: "FakeSession", model):
         self._session = session
@@ -133,6 +163,79 @@ def _make_page(document_id: uuid.UUID, page_number: int, text: str) -> DocumentP
     )
 
 
+def test_heuristics_match_loads_from_config(monkeypatch):
+    monkeypatch.setattr(classify_task, "settings", types.SimpleNamespace(raw={"domains": MINIMAL_DOMAINS}))
+    assert classify_task._heuristics_match(DocumentType.insurance_policy, "The insured must pay the premium.")
+    assert not classify_task._heuristics_match(DocumentType.insurance_policy, "This is a lease agreement.")
+
+
+def test_heuristics_match_unknown_always_true(monkeypatch):
+    monkeypatch.setattr(classify_task, "settings", types.SimpleNamespace(raw={"domains": MINIMAL_DOMAINS}))
+    assert classify_task._heuristics_match(DocumentType.unknown, "any text at all")
+
+
+def test_build_prompt_includes_all_configured_doc_types(monkeypatch):
+    monkeypatch.setattr(classify_task, "settings", types.SimpleNamespace(raw={"domains": MINIMAL_DOMAINS}))
+    prompt = classify_task._build_prompt(["sample page text"])
+    assert "insurance_policy" in prompt
+    assert "loan_agreement" in prompt
+    assert "purchase_agreement" in prompt
+
+
+def test_domain_derived_and_stored_after_classify(monkeypatch):
+    document = _make_document()
+    pages = [_make_page(document.id, 1, "The deed of trust encumbers the property.")]
+    db = FakeSession(document=document, pages=pages)
+
+    fake_settings = types.SimpleNamespace(
+        raw={
+            "domains": MINIMAL_DOMAINS,
+            "classification": {"sample_pages": 3},
+            "llm": {"max_retries": 1, "retry_backoff_base": 1, "primary_model": "test-model", "fallback_models": []},
+        }
+    )
+
+    def _fake_llm(*, model: str, prompt: str) -> dict:
+        return {"doc_type": "deed_of_trust", "confidence": 0.9, "explanation": "test"}
+
+    monkeypatch.setattr(classify_task, "settings", fake_settings)
+    monkeypatch.setattr(classify_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(classify_task, "update_parse_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(classify_task, "call_classification_llm", _fake_llm)
+    monkeypatch.setattr(classify_task.time, "sleep", lambda *_args, **_kwargs: None)
+
+    classify_task.classify_document(document.id)
+
+    assert document.domain == "financial"
+
+
+def test_unknown_doc_type_maps_to_general_domain(monkeypatch):
+    document = _make_document()
+    pages = [_make_page(document.id, 1, "Some random memo text.")]
+    db = FakeSession(document=document, pages=pages)
+
+    fake_settings = types.SimpleNamespace(
+        raw={
+            "domains": MINIMAL_DOMAINS,
+            "classification": {"sample_pages": 3},
+            "llm": {"max_retries": 1, "retry_backoff_base": 1, "primary_model": "test-model", "fallback_models": []},
+        }
+    )
+
+    def _fake_llm(*, model: str, prompt: str) -> dict:
+        return {"doc_type": "unknown", "confidence": 0.5, "explanation": "test"}
+
+    monkeypatch.setattr(classify_task, "settings", fake_settings)
+    monkeypatch.setattr(classify_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(classify_task, "update_parse_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(classify_task, "call_classification_llm", _fake_llm)
+    monkeypatch.setattr(classify_task.time, "sleep", lambda *_args, **_kwargs: None)
+
+    classify_task.classify_document(document.id)
+
+    assert document.domain == "general"
+
+
 def test_classification_sets_doc_type_when_heuristics_agree(monkeypatch):
     document = _make_document()
     pages = [_make_page(document.id, 1, "The parties agree that the contractor shall perform all obligations.")]
@@ -192,6 +295,7 @@ def test_classification_uses_fallback_model_and_records_run(monkeypatch):
 
     fake_settings = types.SimpleNamespace(
         raw={
+            "domains": MINIMAL_DOMAINS,
             "llm": {
                 "primary_model": "primary-model",
                 "fallback_models": ["fallback-model"],
@@ -215,4 +319,3 @@ def test_classification_uses_fallback_model_and_records_run(monkeypatch):
     assert len(db.extraction_runs) == 1
     assert db.extraction_runs[0].model_used == "fallback-model"
     assert db.extraction_runs[0].status == ExtractionStatus.completed
-

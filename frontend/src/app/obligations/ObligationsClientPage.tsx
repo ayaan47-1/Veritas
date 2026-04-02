@@ -3,19 +3,30 @@
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import ReviewModal from "@/components/ReviewModal";
 import SeverityBadge from "@/components/SeverityBadge";
 import StatusBadge from "@/components/StatusBadge";
-import { getAssets, getCurrentUser, getObligations, reviewObligation } from "@/lib/api";
+import { getAssetDocuments, getAssets, getCurrentUser, getDocumentStatus, getObligations, reviewObligation } from "@/lib/api";
 import { csvFilename, downloadCsv } from "@/lib/csv";
+import { computeProgressPercent, isInProgressParseStatus, isTerminalParseStatus } from "@/lib/pipeline";
 import type { Asset, CurrentUser, Obligation, ReviewDecision } from "@/lib/types";
 
 const SEVERITY_ORDER = { critical: 4, high: 3, medium: 2, low: 1 } as const;
 const STATUS_ORDER = { needs_review: 3, confirmed: 2, rejected: 1 } as const;
+const DOMAINS = ["all", "construction", "real_estate", "financial", "general"] as const;
 
 type SortKey = "severity" | "status" | "due_date" | "obligation_type";
+type ProcessingState = {
+  documentId: string;
+  documentName: string;
+  parseStatus: string;
+  totalPages: number | null;
+  pagesProcessed: number;
+  pagesFailed: number;
+  progressPercent: number;
+};
 
 function SortHeader({
   label,
@@ -60,6 +71,9 @@ export default function ObligationsClientPage() {
   const [initialDecision, setInitialDecision] = useState<ReviewDecision>("approve");
   const [sortKey, setSortKey] = useState<SortKey>("severity");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [domainFilter, setDomainFilter] = useState<string>("all");
+  const [processingState, setProcessingState] = useState<ProcessingState | null>(null);
+  const hadActiveProcessingRef = useRef(false);
 
   const selectedAsset = useMemo(() => assets.find((a) => a.id === assetId) ?? null, [assets, assetId]);
 
@@ -108,6 +122,84 @@ export default function ObligationsClientPage() {
     }
   }, [assetId, loadAssets, loadObligations]);
 
+  useEffect(() => {
+    if (!assetId) {
+      setProcessingState(null);
+      hadActiveProcessingRef.current = false;
+      return;
+    }
+
+    let cancelled = false;
+
+    async function pollProcessingState() {
+      try {
+        const documentsResponse = await getAssetDocuments(getToken, {
+          assetId,
+          limit: 50,
+          cursor: 0,
+        });
+        const activeDocument = documentsResponse.items.find((doc) => isInProgressParseStatus(doc.parse_status));
+
+        if (!activeDocument) {
+          if (!cancelled) {
+            setProcessingState(null);
+          }
+          if (hadActiveProcessingRef.current) {
+            hadActiveProcessingRef.current = false;
+            void loadObligations(0, false);
+          }
+          return;
+        }
+
+        let liveStatus = null;
+        try {
+          liveStatus = await getDocumentStatus(getToken, activeDocument.id);
+        } catch {
+          liveStatus = null;
+        }
+
+        const parseStatus = liveStatus?.parse_status ?? activeDocument.parse_status;
+        if (isTerminalParseStatus(parseStatus)) {
+          if (!cancelled) {
+            setProcessingState(null);
+          }
+          if (hadActiveProcessingRef.current) {
+            hadActiveProcessingRef.current = false;
+            void loadObligations(0, false);
+          }
+          return;
+        }
+
+        hadActiveProcessingRef.current = true;
+        if (!cancelled) {
+          setProcessingState({
+            documentId: activeDocument.id,
+            documentName: activeDocument.source_name,
+            parseStatus,
+            totalPages: liveStatus?.total_pages ?? activeDocument.total_pages ?? null,
+            pagesProcessed: liveStatus?.pages_processed ?? 0,
+            pagesFailed: liveStatus?.pages_failed ?? 0,
+            progressPercent: computeProgressPercent(liveStatus, parseStatus),
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setProcessingState(null);
+        }
+      }
+    }
+
+    void pollProcessingState();
+    const interval = setInterval(() => {
+      void pollProcessingState();
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [assetId, getToken, loadObligations]);
+
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -128,9 +220,18 @@ export default function ObligationsClientPage() {
     });
   }, [items, sortKey, sortDir]);
 
+  const visibleItems = useMemo(() => {
+    if (domainFilter === "all") {
+      return sortedItems;
+    }
+    return sortedItems.filter((item) => (item.document_domain ?? item.domain ?? "general") === domainFilter);
+  }, [domainFilter, sortedItems]);
+  const showProcessingPanel = Boolean(assetId && processingState);
+  const showWaitingOnly = Boolean(showProcessingPanel && items.length === 0);
+
   function exportCsv() {
     const headers = ["Obligation", "Type", "Severity", "LLM Severity", "Status", "Confidence", "Due Date"];
-    const rows = sortedItems.map((item) => [
+    const rows = visibleItems.map((item) => [
       item.obligation_text,
       item.obligation_type,
       item.severity,
@@ -191,6 +292,33 @@ export default function ObligationsClientPage() {
           <p className="mb-4 rounded-xl bg-danger-subtle px-4 py-3 text-sm font-medium text-danger">{error}</p>
         ) : null}
 
+        {showProcessingPanel && processingState ? (
+          <section className="mb-4 rounded-2xl border border-border bg-surface p-4 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wider text-text-tertiary">Pipeline In Progress — polling every 3s</p>
+            <p className="mt-1 text-sm text-text-secondary">
+              Extracting from <span className="font-medium text-text-primary">{processingState.documentName}</span>
+            </p>
+            <div className="mt-3">
+              <div className="mb-1.5 flex items-center justify-between text-xs text-text-secondary">
+                <span>Job Progress</span>
+                <span className="font-mono text-text-primary">{processingState.progressPercent}%</span>
+              </div>
+              <div className="h-3 overflow-hidden rounded-full border border-border bg-bg-subtle">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${processingState.progressPercent}%`, background: "#FBBF24" }}
+                />
+              </div>
+              <p className="mt-1 text-xs text-text-secondary">
+                parse_status: <span className="font-mono text-text-primary">{processingState.parseStatus}</span> · pages:{" "}
+                <span className="font-mono text-text-primary">
+                  {processingState.pagesProcessed + processingState.pagesFailed}/{processingState.totalPages ?? "—"}
+                </span>
+              </p>
+            </div>
+          </section>
+        ) : null}
+
         {/* Asset selection grid */}
         {!isLoading && !error && !assetId ? (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -217,7 +345,29 @@ export default function ObligationsClientPage() {
 
         {/* Obligations table */}
         {!isLoading && !error && assetId ? (
+          showWaitingOnly ? (
+            <section className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+              <p className="text-sm font-medium text-text-primary">Processing is still running for this asset.</p>
+              <p className="mt-1 text-sm text-text-secondary">Obligations will appear automatically when extraction finishes.</p>
+            </section>
+          ) : (
           <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+            <div className="border-b border-border bg-bg-subtle px-4 py-3">
+              <label className="text-sm">
+                <span className="mr-2 font-medium text-text-secondary">Domain</span>
+                <select
+                  value={domainFilter}
+                  onChange={(event) => setDomainFilter(event.target.value)}
+                  className="rounded-lg border border-border bg-surface px-2 py-1 text-sm text-text-primary outline-none focus:border-border-strong"
+                >
+                  {DOMAINS.map((domain) => (
+                    <option key={domain} value={domain}>
+                      {domain}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border bg-bg-subtle">
@@ -232,55 +382,63 @@ export default function ObligationsClientPage() {
                 </tr>
               </thead>
               <tbody>
-                {sortedItems.map((item) => (
-                  <tr key={item.id} className="border-t border-border align-top transition-colors hover:bg-bg-subtle">
-                    <td className="max-w-xl px-4 py-3 text-text-primary">
-                      <Link href={`/obligations/${item.id}`} className="underline decoration-border underline-offset-4 hover:decoration-border-strong">
-                        {item.obligation_text}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-text-secondary">{item.obligation_type}</td>
-                    <td className="px-4 py-3"><SeverityBadge severity={item.severity} llmSeverity={item.llm_severity} /></td>
-                    <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
-                    <td className="px-4 py-3 text-text-secondary">
-                      {item.llm_quality_confidence != null ? (
-                        <span title={`System: ${item.system_confidence}, LLM quality: ${item.llm_quality_confidence}`}>
-                          {item.llm_quality_confidence}
-                        </span>
-                      ) : (
-                        item.system_confidence
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-text-secondary">{item.due_date ? item.due_date.slice(0, 10) : "—"}</td>
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/obligations/${item.id}`}
-                        style={{ background: "var(--info-subtle)", color: "var(--info)", borderColor: "var(--info)" }}
-                        className="rounded-full border px-2.5 py-1 text-xs font-medium"
-                      >
-                        View
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          onClick={() => { setInitialDecision("approve"); setReviewTarget(item); }}
-                          style={{ background: "var(--success-subtle)", color: "var(--success)", borderColor: "var(--success)" }}
-                          className="rounded-full border px-2.5 py-1 text-xs font-medium"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => { setInitialDecision("reject"); setReviewTarget(item); }}
-                          style={{ background: "var(--danger-subtle)", color: "var(--danger)", borderColor: "var(--danger)" }}
-                          className="rounded-full border px-2.5 py-1 text-xs font-medium"
-                        >
-                          Reject
-                        </button>
-                      </div>
+                {visibleItems.length === 0 ? (
+                  <tr className="border-t border-border">
+                    <td colSpan={8} className="px-4 py-8 text-center text-sm text-text-secondary">
+                      No obligations found for this asset yet.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  visibleItems.map((item) => (
+                    <tr key={item.id} className="border-t border-border align-top transition-colors hover:bg-bg-subtle">
+                      <td className="max-w-xl px-4 py-3 text-text-primary">
+                        <Link href={`/obligations/${item.id}`} className="underline decoration-border underline-offset-4 hover:decoration-border-strong">
+                          {item.obligation_text}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-text-secondary">{item.obligation_type}</td>
+                      <td className="px-4 py-3"><SeverityBadge severity={item.severity} llmSeverity={item.llm_severity} /></td>
+                      <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
+                      <td className="px-4 py-3 text-text-secondary">
+                        {item.llm_quality_confidence != null ? (
+                          <span title={`System: ${item.system_confidence}, LLM quality: ${item.llm_quality_confidence}`}>
+                            {item.llm_quality_confidence}
+                          </span>
+                        ) : (
+                          item.system_confidence
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-text-secondary">{item.due_date ? item.due_date.slice(0, 10) : "—"}</td>
+                      <td className="px-4 py-3">
+                        <Link
+                          href={`/obligations/${item.id}`}
+                          style={{ background: "var(--info-subtle)", color: "var(--info)", borderColor: "var(--info)" }}
+                          className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                        >
+                          View
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => { setInitialDecision("approve"); setReviewTarget(item); }}
+                            style={{ background: "var(--success-subtle)", color: "var(--success)", borderColor: "var(--success)" }}
+                            className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => { setInitialDecision("reject"); setReviewTarget(item); }}
+                            style={{ background: "var(--danger-subtle)", color: "var(--danger)", borderColor: "var(--danger)" }}
+                            className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
 
@@ -295,6 +453,7 @@ export default function ObligationsClientPage() {
               </div>
             ) : null}
           </section>
+          )
         ) : null}
       </div>
 

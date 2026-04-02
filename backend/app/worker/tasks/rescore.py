@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 _RESCORE_PROMPT_TEMPLATE = (
-    "You are a construction contract analyst. Re-evaluate extraction quality and severity.\n\n"
+    "You are a {persona}. Re-evaluate extraction quality and severity.\n\n"
     "Document type: {doc_type}\n\n"
     "Items to evaluate:\n"
     "{items_block}\n\n"
@@ -33,6 +33,13 @@ _RESCORE_PROMPT_TEMPLATE = (
     '  "quality_confidence": integer 0-100,\n'
     '  "reasoning": short rationale.\n'
 )
+
+_DOMAIN_PERSONAS = {
+    "construction": "construction contract analyst",
+    "real_estate": "real estate attorney",
+    "financial": "financial compliance analyst",
+    "general": "document analyst",
+}
 
 
 def _coerce_severity(raw: object) -> Severity | None:
@@ -69,6 +76,23 @@ def _build_items_block(items: list[Obligation | Risk], evidence_pages: dict[uuid
             f"   Evidence pages: {page_text}"
         )
     return "\n".join(lines)
+
+
+def _build_rescore_prompt(
+    document: Document,
+    obligations: list[Obligation],
+    risks: list[Risk],
+    evidence_pages: dict[uuid.UUID, list[int]] | None = None,
+) -> str:
+    domain = document.domain or "general"
+    persona = _DOMAIN_PERSONAS.get(domain, "document analyst")
+    pages = evidence_pages or {}
+    items: list[Obligation | Risk] = [*obligations, *risks]
+    return _RESCORE_PROMPT_TEMPLATE.format(
+        persona=persona,
+        doc_type=document.doc_type.value,
+        items_block=_build_items_block(items, pages),
+    )
 
 
 def rescore_with_llm(document_id: str) -> dict[str, object]:
@@ -110,9 +134,13 @@ def rescore_with_llm(document_id: str) -> dict[str, object]:
 
         for start in range(0, len(all_items), max_items):
             batch = all_items[start : start + max_items]
-            prompt = _RESCORE_PROMPT_TEMPLATE.format(
-                doc_type=document.doc_type.value,
-                items_block=_build_items_block(batch, pages_by_item),
+            batch_obligations = [item for item in batch if isinstance(item, Obligation)]
+            batch_risks = [item for item in batch if isinstance(item, Risk)]
+            prompt = _build_rescore_prompt(
+                document=document,
+                obligations=batch_obligations,
+                risks=batch_risks,
+                evidence_pages=pages_by_item,
             )
             try:
                 raw = llm_completion(model, prompt)
