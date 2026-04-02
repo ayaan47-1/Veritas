@@ -12,6 +12,11 @@ from .tasks.verify import verify_extractions
 from .tasks.score import score_extractions
 from .tasks.rescore import rescore_with_llm
 from .tasks.notify import persist_final_status, emit_notifications
+from .tasks.compliance import (
+    execute_mcp,
+    persist_results,
+    emit_compliance_notification,
+)
 
 
 @inngest_client.create_function(
@@ -21,10 +26,10 @@ from .tasks.notify import persist_final_status, emit_notifications
 )
 async def process_document(
     ctx: inngest.Context,
+    step: inngest.Step,
 ) -> None:
     """Orchestrator — runs the full 11-stage pipeline with per-step tracking."""
     document_id: str = ctx.event.data["document_id"]
-    step = ctx.step
 
     await step.run("1-parse", lambda: parse_document(document_id))
     await step.run("2-ocr", lambda: ocr_scanned_pages(document_id))
@@ -39,3 +44,20 @@ async def process_document(
     await step.run("10b-rescore", lambda: rescore_with_llm(document_id))
     await step.run("11-persist", lambda: persist_final_status(document_id))
     await step.run("12-notify", lambda: emit_notifications(document_id))
+
+
+@inngest_client.create_function(
+    fn_id="run-compliance-check",
+    trigger=inngest.TriggerEvent(event="veritas/compliance.requested"),
+    retries=2,
+)
+async def run_compliance_check(
+    ctx: inngest.Context,
+    step: inngest.Step,
+) -> None:
+    """Run VeritasMCP compliance pipeline and persist results."""
+    report_id: str = ctx.event.data["report_id"]
+
+    await step.run("1-execute-mcp", lambda: execute_mcp(report_id))
+    await step.run("2-persist-results", lambda: persist_results(report_id))
+    await step.run("3-notify", lambda: emit_compliance_notification(report_id))
