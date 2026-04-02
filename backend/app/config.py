@@ -15,6 +15,7 @@ class Settings:
     max_pages: int
     cors_origins: list[str]
     app_env: str
+    mcp_server_path: str
     raw: Dict[str, Any]
 
 
@@ -52,6 +53,10 @@ def _apply_env_overrides(cfg: Dict[str, Any]) -> Dict[str, Any]:
     if app_env:
         cfg.setdefault("app", {})["env"] = app_env
 
+    mcp_server_path = os.getenv("MCP_SERVER_PATH")
+    if mcp_server_path:
+        cfg.setdefault("mcp", {})["server_path"] = mcp_server_path
+
     return cfg
 
 
@@ -85,6 +90,7 @@ def load_settings() -> Settings:
         max_pages=int(_get_from_path(cfg, "ingest.max_pages", 500)),
         cors_origins=_get_from_path(cfg, "app.cors_origins", []),
         app_env=_get_from_path(cfg, "app.env", "dev"),
+        mcp_server_path=_get_from_path(cfg, "mcp.server_path", ""),
         raw=cfg,
     )
 

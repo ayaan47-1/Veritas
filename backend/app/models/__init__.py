@@ -1,5 +1,7 @@
 from .base import Base
 from .asset import Asset
+from .ifc_model import IfcModel
+from .compliance import ComplianceReport, ComplianceResult
 from .audit import AuditLog
 from .config import ConfigOverride
 from .document import Chunk, Document, DocumentPage, TextSpan
@@ -35,5 +37,8 @@ __all__ = [
     "RiskReview",
     "User",
     "UserAssetAssignment",
+    "IfcModel",
+    "ComplianceReport",
+    "ComplianceResult",
 ]
 
