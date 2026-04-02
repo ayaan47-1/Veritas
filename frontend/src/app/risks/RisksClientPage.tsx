@@ -132,7 +132,7 @@ export default function RisksClientPage() {
     async function pollProcessingState() {
       try {
         const documentsResponse = await getAssetDocuments(getToken, {
-          assetId,
+          assetId: assetId!,
           limit: 50,
           cursor: 0,
         });
