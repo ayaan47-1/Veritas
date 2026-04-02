@@ -4,6 +4,7 @@ app:
     - "http://localhost:3000"
     - "http://127.0.0.1:3000"
     - "http://localhost:8001"
+    - "http://134.122.41.133:3000"
 
 database:
   url: "postgresql+psycopg2://veritas:veritas@localhost:5432/veritas"
@@ -392,3 +393,8 @@ rescoring:
   enabled: true
   model: "claude-haiku-4-5-20251001"
   max_items_per_call: 50
+
+mcp:
+  # Absolute path to the built VeritasMCP server entry point.
+  # Override with MCP_SERVER_PATH env var in production.
+  server_path: ""
