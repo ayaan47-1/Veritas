@@ -164,3 +164,24 @@ class NotificationStatus(str, enum.Enum):
     pending = "pending"
     sent = "sent"
     read = "read"
+
+
+class IfcParseStatus(str, enum.Enum):
+    uploaded = "uploaded"
+    processing = "processing"
+    processed = "processed"
+    failed = "failed"
+
+
+class ReportStatus(str, enum.Enum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
+
+class ResultStatus(str, enum.Enum):
+    passed = "pass"
+    failed = "fail"
+    warning = "warning"
+    not_applicable = "not_applicable"
