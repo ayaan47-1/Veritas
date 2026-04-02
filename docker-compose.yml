@@ -37,6 +37,7 @@ services:
     restart: always
     ports:
       - "3000:3000"
+    env_file: .env.production
     depends_on:
       - backend
 
