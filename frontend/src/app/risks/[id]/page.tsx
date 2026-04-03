@@ -13,6 +13,54 @@ import { buildContextDigest, formatQuoteAsProse } from "@/lib/evidence-utils";
 import type { CurrentUser, DocumentDetail, DocumentPage, RiskDetail, ReviewDecision } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+const DEADLINE_RE = /\b(by|before|within|no later than|after|days?|weeks?|months?)\b/i;
+const STATUTE_RE = /(§|C\.R\.S\.|U\.S\.C\.|statute|regulation)/i;
+const MONETARY_RE = /\$[\d,]+|dollar/i;
+
+type ScoreBreakdownItem = { label: string; delta: number };
+
+function buildRiskScoreBreakdown(risk: RiskDetail): ScoreBreakdownItem[] {
+  if (risk.status === "rejected" && risk.evidence.length === 0) {
+    return [{ label: "No verified evidence found", delta: 0 }];
+  }
+
+  const items: ScoreBreakdownItem[] = [];
+
+  if (risk.evidence.length > 0) {
+    items.push({ label: "Quote verified against document text", delta: 40 });
+    items.push({ label: "Verifier pass", delta: 15 });
+  }
+
+  if (STATUTE_RE.test(risk.risk_text)) {
+    items.push({ label: "Statute or regulation reference detected", delta: 10 });
+  }
+
+  if (MONETARY_RE.test(risk.risk_text)) {
+    items.push({ label: "Monetary amount detected", delta: 5 });
+  }
+
+  if (DEADLINE_RE.test(risk.risk_text)) {
+    items.push({ label: "Explicit deadline language", delta: 5 });
+  }
+
+  if (risk.contradiction_flag) {
+    items.push({ label: "Linked to contradicting obligation", delta: 5 });
+  }
+
+  if (risk.has_external_reference) {
+    items.push({ label: "External reference present", delta: 5 });
+  }
+
+  if (risk.evidence.some((ev) => ev.source === "ocr")) {
+    items.push({ label: "Evidence came from OCR text", delta: -15 });
+  }
+
+  if (risk.contradiction_flag) {
+    items.push({ label: "Contradiction detected", delta: -30 });
+  }
+
+  return items;
+}
 
 function buildEvidenceKey(documentId: string, pageNumber: number): string {
   return `${documentId}:${pageNumber}`;
@@ -149,6 +197,27 @@ export default function RiskEvidencePage() {
                     {confidenceLabel}: {displayedConfidence}
                   </span>
                 </div>
+                {(() => {
+                  const breakdown = buildRiskScoreBreakdown(risk);
+                  return breakdown.length > 0 ? (
+                    <div className="mt-4 rounded-xl border border-border bg-bg-subtle p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-medium uppercase tracking-wider text-text-tertiary">Confidence Breakdown</p>
+                        <span className="text-xs font-semibold text-text-primary">Total: {risk.system_confidence}</span>
+                      </div>
+                      <ul className="mt-2 space-y-1.5 text-sm text-text-secondary">
+                        {breakdown.map((item) => (
+                          <li key={`${item.label}-${item.delta}`} className="flex items-start justify-between gap-3">
+                            <span>{item.label}</span>
+                            <span className={`shrink-0 font-mono ${item.delta >= 0 ? "text-green-700" : "text-red-700"}`}>
+                              {item.delta >= 0 ? `+${item.delta}` : item.delta}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null;
+                })()}
               </article>
 
               <article className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
