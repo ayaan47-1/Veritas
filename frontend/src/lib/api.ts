@@ -14,6 +14,7 @@ import type {
   PaginatedResponse,
   ReviewPayload,
   Risk,
+  RiskDetail,
 } from "@/lib/types";
 
 type GetTokenFn = () => Promise<string | null>;
@@ -179,6 +180,10 @@ export async function getObligations(
 
 export async function getObligation(getToken: GetTokenFn, obligationId: string): Promise<ObligationDetail> {
   return apiFetch<ObligationDetail>(`/obligations/${obligationId}`, getToken);
+}
+
+export async function getRisk(getToken: GetTokenFn, riskId: string): Promise<RiskDetail> {
+  return apiFetch<RiskDetail>(`/risks/${riskId}`, getToken);
 }
 
 export async function getRisks(

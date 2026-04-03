@@ -9,6 +9,7 @@ import ReviewModal from "@/components/ReviewModal";
 import SeverityBadge from "@/components/SeverityBadge";
 import StatusBadge from "@/components/StatusBadge";
 import { getCurrentUser, getDocument, getDocumentPage, getObligation, reviewObligation } from "@/lib/api";
+import { buildContextDigest, formatQuoteAsProse } from "@/lib/evidence-utils";
 import type { CurrentUser, DocumentDetail, DocumentPage, ObligationDetail, ReviewDecision } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
@@ -19,162 +20,13 @@ type ScoreBreakdownItem = {
   delta: number;
 };
 
-type ContextDigest = {
-  bullets: string[];
-  references: string[];
-};
-
 function buildEvidenceKey(documentId: string, pageNumber: number): string {
   return `${documentId}:${pageNumber}`;
 }
 
-function normalizeInlineText(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function canonicalizeText(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function jaccardSimilarity(a: string, b: string): number {
-  const aTokens = new Set(canonicalizeText(a).split(" ").filter(Boolean));
-  const bTokens = new Set(canonicalizeText(b).split(" ").filter(Boolean));
-  if (aTokens.size === 0 || bTokens.size === 0) {
-    return 0;
-  }
-  let intersection = 0;
-  for (const token of aTokens) {
-    if (bTokens.has(token)) {
-      intersection += 1;
-    }
-  }
-  const union = aTokens.size + bTokens.size - intersection;
-  return union > 0 ? intersection / union : 0;
-}
-
-function isRedundantWithQuote(contextText: string, quote: string): boolean {
-  const canonicalContext = canonicalizeText(contextText);
-  const canonicalQuote = canonicalizeText(quote);
-  if (!canonicalContext || !canonicalQuote) {
-    return false;
-  }
-  if (canonicalContext === canonicalQuote) {
-    return true;
-  }
-  if (canonicalContext.includes(canonicalQuote) || canonicalQuote.includes(canonicalContext)) {
-    return true;
-  }
-  return jaccardSimilarity(canonicalContext, canonicalQuote) >= 0.8;
-}
-
-function isUsefulContextBullet(text: string): boolean {
-  const normalized = normalizeInlineText(text);
-  const words = normalized.split(/\s+/).filter(Boolean);
-  if (words.length < 5) {
-    return false;
-  }
-  if (/[(-]$/.test(normalized)) {
-    return false;
-  }
-  if (/^\(?eff\.\s*\d/i.test(normalized) && words.length < 7) {
-    return false;
-  }
-  return true;
-}
-
-function buildContextBlocks(rawText: string): string[] {
-  const lines = rawText
-    .replace(/\r/g, "")
-    .replace(/\u2022/g, "\n• ")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const blocks: Array<{ text: string; isBullet: boolean }> = [];
-
-  for (const line of lines) {
-    const isBullet = /^[•\-–]/.test(line);
-    const cleaned = normalizeInlineText(line.replace(/^[•\-–]+\s*/, ""));
-    if (!cleaned) {
-      continue;
-    }
-
-    if (isBullet || blocks.length === 0) {
-      blocks.push({ text: cleaned, isBullet });
-      continue;
-    }
-
-    const last = blocks[blocks.length - 1];
-    last.text = normalizeInlineText(`${last.text} ${cleaned}`);
-  }
-
-  return blocks
-    .filter((block, index) => block.isBullet || index > 0)
-    .map((block) => block.text)
-    .filter((block) => block.length > 12);
-}
-
-function extractContextReferences(parts: string[]): string[] {
-  const matches = parts.flatMap((part) =>
-    Array.from(
-      part.matchAll(
-        /(?:§+\s*\d+(?:\.\d+)*)|(?:section|sec\.|clause|article|paragraph)\s+[A-Za-z0-9.-]+|\b\d+(?:\.\d+)+\b|\$\s*[\d,]+(?:\.\d+)?|\b\d+\s*(?:days?|weeks?|months?|years?)\b|\b\d+(?:\.\d+)?%/gi,
-      ),
-      (match) => normalizeInlineText(match[0]),
-    ),
-  );
-
-  return Array.from(new Set(matches));
-}
-
-function buildContextDigest(rawText: string, start: number, end: number, quote: string): ContextDigest {
-  const normalizedQuote = normalizeInlineText(quote);
-  if (!rawText.trim()) {
-    return { bullets: [], references: [] };
-  }
-
-  const blocks = buildContextBlocks(rawText);
-  if (blocks.length === 0) {
-    return {
-      bullets: [],
-      references: normalizedQuote ? extractContextReferences([normalizedQuote]) : [],
-    };
-  }
-
-  const centerIndex = blocks.findIndex((block) => block.includes(normalizedQuote));
-  if (centerIndex < 0) {
-    return {
-      bullets: [],
-      references: normalizedQuote ? extractContextReferences([normalizedQuote]) : [],
-    };
-  }
-
-  const bullets: string[] = [];
-  const previous = blocks[centerIndex - 1];
-  const next = blocks[centerIndex + 1];
-
-  if (previous && !isRedundantWithQuote(previous, normalizedQuote) && isUsefulContextBullet(previous)) {
-    bullets.push(previous);
-  }
-  if (next && !isRedundantWithQuote(next, normalizedQuote) && isUsefulContextBullet(next)) {
-    bullets.push(next);
-  }
-
-  const references = extractContextReferences(bullets);
-
-  return {
-    bullets: Array.from(new Set(bullets)),
-    references,
-  };
-}
-
 function obligationDocTypeAligned(docType: string | undefined, obligationType: string): boolean {
-  if (!docType) {
-    return false;
-  }
-  if (docType === "invoice") {
-    return obligationType === "payment";
-  }
+  if (!docType) return false;
+  if (docType === "invoice") return obligationType === "payment";
   return true;
 }
 
@@ -275,9 +127,7 @@ export default function ObligationEvidencePage() {
 
       const nextMap: Record<string, DocumentPage> = {};
       for (const entry of entries) {
-        if (!entry) {
-          continue;
-        }
+        if (!entry) continue;
         nextMap[entry[0]] = entry[1];
       }
       setPageContextByKey(nextMap);
@@ -299,8 +149,7 @@ export default function ObligationEvidencePage() {
       setDocumentDetail(doc);
       await loadPageContext(payload);
     } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : "Failed to load obligation";
-      setError(message);
+      setError(loadError instanceof Error ? loadError.message : "Failed to load obligation");
     } finally {
       setIsLoading(false);
     }
@@ -311,9 +160,7 @@ export default function ObligationEvidencePage() {
   }, [loadObligation]);
 
   const scoreBreakdown = useMemo(() => {
-    if (!obligation) {
-      return [];
-    }
+    if (!obligation) return [];
     return buildObligationScoreBreakdown(
       obligation,
       obligation.evidence.length,
@@ -334,22 +181,14 @@ export default function ObligationEvidencePage() {
     reviewer_confidence: number;
     reason?: string;
   }) {
-    if (!obligation || !currentUser) {
-      throw new Error("Missing review context");
-    }
+    if (!obligation || !currentUser) throw new Error("Missing review context");
     const response = await reviewObligation(getToken, obligation.id, {
       ...payload,
       reviewer_id: currentUser.id,
     });
-
     setObligation((prev) => {
-      if (!prev) {
-        return prev;
-      }
-      return {
-        ...prev,
-        ...response.obligation,
-      };
+      if (!prev) return prev;
+      return { ...prev, ...response.obligation };
     });
   }
 
@@ -433,52 +272,68 @@ export default function ObligationEvidencePage() {
                   </a>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {obligation.evidence.map((item) => {
                     const key = buildEvidenceKey(item.document_id, item.page_number);
                     const pageContext = pageContextByKey[key];
                     const contextDigest = pageContext
                       ? buildContextDigest(pageContext.raw_text, item.raw_char_start, item.raw_char_end, item.quote)
                       : null;
+                    const quoteFormat = formatQuoteAsProse(item.quote);
 
                     return (
                       <div key={item.id} className="rounded-xl border border-border bg-bg-subtle p-4">
-                        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+                        {/* Page metadata */}
+                        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
                           <span className="rounded-full border border-border bg-surface px-2 py-0.5 font-medium">Page {item.page_number}</span>
                           <span className="rounded-full border border-border bg-surface px-2 py-0.5 font-medium">Source: {item.source}</span>
                           <span className="rounded-full border border-border bg-surface px-2 py-0.5 font-mono">
                             chars {item.raw_char_start}–{item.raw_char_end}
                           </span>
                         </div>
-                        <p className="rounded-lg border border-border bg-surface p-3 font-mono text-sm text-text-primary">{item.quote}</p>
+
+                        {/* Quote — formatted as paragraph or bullet list */}
+                        <div className="rounded-lg border-l-2 border-border-strong bg-surface px-4 py-3">
+                          <p className="mb-1 text-xs font-medium uppercase tracking-wider text-text-tertiary">Quote</p>
+                          {quoteFormat.type === "bullets" ? (
+                            <ul className="space-y-1 text-sm leading-relaxed text-text-primary">
+                              {quoteFormat.items.map((bullet, i) => (
+                                <li key={i} className="flex gap-2">
+                                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-text-tertiary" />
+                                  <span>{bullet}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm leading-relaxed text-text-primary">{quoteFormat.text}</p>
+                          )}
+                        </div>
+
+                        {/* Context — always visible when available */}
                         {contextDigest && contextDigest.bullets.length > 0 ? (
-                          <details className="mt-3 rounded-lg border border-border bg-surface px-3 py-2">
-                            <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-text-tertiary">
-                              Context Summary
-                            </summary>
-                            <ul className="mt-2 space-y-1.5 pl-4 text-sm leading-relaxed text-text-secondary">
+                          <div className="mt-3 rounded-lg border border-border bg-surface px-4 py-3">
+                            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-text-tertiary">Surrounding Context</p>
+                            <ul className="space-y-1.5 text-sm leading-relaxed text-text-secondary">
                               {contextDigest.bullets.map((bullet, index) => (
-                                <li key={`${item.id}-bullet-${index}`} className="list-disc">
+                                <li key={`${item.id}-bullet-${index}`} className="flex gap-2">
+                                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-text-tertiary" />
                                   <span>{bullet}</span>
                                 </li>
                               ))}
                             </ul>
                             {contextDigest.references.length > 0 ? (
-                              <div className="mt-3">
-                                <p className="text-xs font-medium uppercase tracking-wider text-text-tertiary">Key References</p>
-                                <div className="mt-2 flex flex-wrap gap-2">
-                                  {contextDigest.references.map((reference) => (
-                                    <span
-                                      key={`${item.id}-${reference}`}
-                                      className="rounded-full border border-border bg-bg-subtle px-2 py-1 text-xs font-medium text-text-secondary"
-                                    >
-                                      {reference}
-                                    </span>
-                                  ))}
-                                </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {contextDigest.references.map((reference) => (
+                                  <span
+                                    key={`${item.id}-${reference}`}
+                                    className="rounded-full border border-border bg-bg-subtle px-2 py-1 text-xs font-medium text-text-secondary"
+                                  >
+                                    {reference}
+                                  </span>
+                                ))}
                               </div>
                             ) : null}
-                          </details>
+                          </div>
                         ) : null}
                       </div>
                     );
@@ -522,20 +377,14 @@ export default function ObligationEvidencePage() {
                 <p className="text-sm font-medium text-text-primary">Review Actions</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
-                    onClick={() => {
-                      setInitialDecision("approve");
-                      setReviewOpen(true);
-                    }}
+                    onClick={() => { setInitialDecision("approve"); setReviewOpen(true); }}
                     style={{ background: "var(--success-subtle)", color: "var(--success)", borderColor: "var(--success)" }}
                     className="rounded-full border px-3 py-1.5 text-xs font-medium"
                   >
                     Approve
                   </button>
                   <button
-                    onClick={() => {
-                      setInitialDecision("reject");
-                      setReviewOpen(true);
-                    }}
+                    onClick={() => { setInitialDecision("reject"); setReviewOpen(true); }}
                     style={{ background: "var(--danger-subtle)", color: "var(--danger)", borderColor: "var(--danger)" }}
                     className="rounded-full border px-3 py-1.5 text-xs font-medium"
                   >
