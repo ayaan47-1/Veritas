@@ -1,6 +1,6 @@
-# VeritasLayer — AI Operational Intelligence Layer (MVP)
+# Veritas — AI Operational Intelligence Layer (MVP)
 
-VeritasLayer ingests operational documents (starting with PDFs) and produces high-precision, evidence-traceable:
+Veritas ingests operational documents (starting with PDFs) and produces high-precision, evidence-traceable:
 
 - Obligations and deadlines  
 - Risk alerts  
@@ -12,7 +12,7 @@ Core guarantee: **no claim without verifiable evidence** (page number, exact quo
 
 # Purpose
 
-VeritasLayer creates a **truth layer** for operational assets such as buildings, construction projects, portfolios, and facilities. It converts unstructured documents into structured, auditable intelligence that software and humans can trust.
+Veritas creates a **truth layer** for operational assets such as buildings, construction projects, portfolios, and facilities. It converts unstructured documents into structured, auditable intelligence that software and humans can trust.
 
 This MVP is not a chatbot. Chat interfaces can be built later on top of the verified truth layer.
 
