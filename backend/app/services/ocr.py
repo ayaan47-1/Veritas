@@ -38,8 +38,8 @@ def ocr_pdf_page(file_path: str, page_number: int) -> str:
 
     with fitz.open(file_path) as doc:
         page = doc.load_page(page_number - 1)
-        pix = page.get_pixmap(dpi=200, alpha=False)
-        image_bytes = pix.tobytes("png")
+        pix = page.get_pixmap(dpi=150, alpha=False)
+        image_bytes = pix.tobytes("jpeg")
 
     payload = {
         "model": cfg.model,
@@ -51,7 +51,7 @@ def ocr_pdf_page(file_path: str, page_number: int) -> str:
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": "data:image/png;base64,"
+                            "url": "data:image/jpeg;base64,"
                             + base64.b64encode(image_bytes).decode("ascii")
                         },
                     },
