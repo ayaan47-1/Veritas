@@ -22,6 +22,40 @@ import type { CurrentUser, DocumentDetail, DocumentStatus, Obligation, ReviewDec
 
 type ActiveTab = "obligations" | "risks";
 
+const SEVERITY_ORDER = { critical: 4, high: 3, medium: 2, low: 1 } as const;
+const STATUS_ORDER = { needs_review: 3, confirmed: 2, rejected: 1 } as const;
+
+type ObSortKey = "obligation_type" | "severity" | "status" | "confidence" | "due_date";
+type RiskSortKey = "risk_type" | "severity" | "status" | "confidence";
+
+function SortHeader<K extends string>({
+  label,
+  sortKey,
+  active,
+  dir,
+  onToggle,
+}: {
+  label: string;
+  sortKey: K;
+  active: boolean;
+  dir: "asc" | "desc";
+  onToggle: (key: K) => void;
+}) {
+  return (
+    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">
+      <button
+        onClick={() => onToggle(sortKey)}
+        className="flex items-center gap-1 transition-colors hover:text-text-primary"
+      >
+        {label}
+        <span className={active ? "text-text-primary" : "opacity-40 text-text-tertiary"}>
+          {active && dir === "asc" ? "↑" : "↓"}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 export default function DocumentDetailPage() {
   const { getToken } = useAuth();
   const params = useParams<{ id: string }>();
@@ -36,6 +70,11 @@ export default function DocumentDetailPage() {
   const [obligationsNextCursor, setObligationsNextCursor] = useState<string | null>(null);
   const [risks, setRisks] = useState<Risk[]>([]);
   const [risksNextCursor, setRisksNextCursor] = useState<string | null>(null);
+
+  const [obSortKey, setObSortKey] = useState<ObSortKey>("severity");
+  const [obSortDir, setObSortDir] = useState<"asc" | "desc">("desc");
+  const [riskSortKey, setRiskSortKey] = useState<RiskSortKey>("severity");
+  const [riskSortDir, setRiskSortDir] = useState<"asc" | "desc">("desc");
 
   const [obligationTarget, setObligationTarget] = useState<Obligation | null>(null);
   const [riskTarget, setRiskTarget] = useState<Risk | null>(null);
@@ -165,6 +204,47 @@ export default function DocumentDetailPage() {
     throw new Error("Missing review target");
   }
 
+  function toggleObSort(key: ObSortKey) {
+    if (obSortKey === key) setObSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setObSortKey(key); setObSortDir("desc"); }
+  }
+
+  function toggleRiskSort(key: RiskSortKey) {
+    if (riskSortKey === key) setRiskSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setRiskSortKey(key); setRiskSortDir("desc"); }
+  }
+
+  const sortedObligations = useMemo(() => {
+    return [...obligations].sort((a, b) => {
+      let cmp = 0;
+      if (obSortKey === "severity") cmp = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
+      else if (obSortKey === "status") cmp = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+      else if (obSortKey === "obligation_type") cmp = a.obligation_type.localeCompare(b.obligation_type);
+      else if (obSortKey === "due_date") cmp = (a.due_date ?? "").localeCompare(b.due_date ?? "");
+      else if (obSortKey === "confidence") {
+        const aConf = a.llm_quality_confidence ?? a.system_confidence;
+        const bConf = b.llm_quality_confidence ?? b.system_confidence;
+        cmp = aConf - bConf;
+      }
+      return obSortDir === "desc" ? -cmp : cmp;
+    });
+  }, [obligations, obSortKey, obSortDir]);
+
+  const sortedRisks = useMemo(() => {
+    return [...risks].sort((a, b) => {
+      let cmp = 0;
+      if (riskSortKey === "severity") cmp = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
+      else if (riskSortKey === "status") cmp = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+      else if (riskSortKey === "risk_type") cmp = a.risk_type.localeCompare(b.risk_type);
+      else if (riskSortKey === "confidence") {
+        const aConf = a.llm_quality_confidence ?? a.system_confidence;
+        const bConf = b.llm_quality_confidence ?? b.system_confidence;
+        cmp = aConf - bConf;
+      }
+      return riskSortDir === "desc" ? -cmp : cmp;
+    });
+  }, [risks, riskSortKey, riskSortDir]);
+
   const totalPages = status?.total_pages ?? document?.total_pages ?? null;
   const progressPercent = computeProgressPercent(status, document?.parse_status);
   const showProgress = status ? isInProgressParseStatus(status.parse_status) : false;
@@ -292,11 +372,11 @@ export default function DocumentDetailPage() {
                     <thead>
                       <tr className="border-b border-border bg-bg-subtle">
                         <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Obligation</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Type</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Severity</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Status</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Confidence</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Due Date</th>
+                        <SortHeader label="Type" sortKey="obligation_type" active={obSortKey === "obligation_type"} dir={obSortDir} onToggle={toggleObSort} />
+                        <SortHeader label="Severity" sortKey="severity" active={obSortKey === "severity"} dir={obSortDir} onToggle={toggleObSort} />
+                        <SortHeader label="Status" sortKey="status" active={obSortKey === "status"} dir={obSortDir} onToggle={toggleObSort} />
+                        <SortHeader label="Confidence" sortKey="confidence" active={obSortKey === "confidence"} dir={obSortDir} onToggle={toggleObSort} />
+                        <SortHeader label="Due Date" sortKey="due_date" active={obSortKey === "due_date"} dir={obSortDir} onToggle={toggleObSort} />
                         <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Evidence</th>
                         <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Actions</th>
                       </tr>
@@ -313,7 +393,7 @@ export default function DocumentDetailPage() {
                           </td>
                         </tr>
                       ) : (
-                        obligations.map((item) => (
+                        sortedObligations.map((item) => (
                           <tr key={item.id} className="border-t border-border align-top transition-colors hover:bg-bg-subtle">
                             <td className="max-w-xl px-4 py-3 text-text-primary">{item.obligation_text}</td>
                             <td className="px-4 py-3 text-text-secondary">{item.obligation_type}</td>
@@ -395,10 +475,10 @@ export default function DocumentDetailPage() {
                     <thead>
                       <tr className="border-b border-border bg-bg-subtle">
                         <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Risk</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Type</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Severity</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Status</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Confidence</th>
+                        <SortHeader label="Type" sortKey="risk_type" active={riskSortKey === "risk_type"} dir={riskSortDir} onToggle={toggleRiskSort} />
+                        <SortHeader label="Severity" sortKey="severity" active={riskSortKey === "severity"} dir={riskSortDir} onToggle={toggleRiskSort} />
+                        <SortHeader label="Status" sortKey="status" active={riskSortKey === "status"} dir={riskSortDir} onToggle={toggleRiskSort} />
+                        <SortHeader label="Confidence" sortKey="confidence" active={riskSortKey === "confidence"} dir={riskSortDir} onToggle={toggleRiskSort} />
                         <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-tertiary">Actions</th>
                       </tr>
                     </thead>
@@ -414,7 +494,7 @@ export default function DocumentDetailPage() {
                           </td>
                         </tr>
                       ) : (
-                        risks.map((item) => (
+                        sortedRisks.map((item) => (
                           <tr key={item.id} className="border-t border-border align-top transition-colors hover:bg-bg-subtle">
                             <td className="max-w-xl px-4 py-3 text-text-primary">{item.risk_text}</td>
                             <td className="px-4 py-3 text-text-secondary">{item.risk_type}</td>
