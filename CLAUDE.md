@@ -50,13 +50,48 @@ python3 -m backend.tools.evaluate_pipeline --document-id <uuid>       # precisio
 python3 -m backend.tools.rerun_extraction --document-id <uuid>        # re-run stages 6–10b on existing doc
 ```
 
+## Docker Deployment
+
+```bash
+# Build and start all services (postgres, backend, frontend)
+docker compose up --build -d
+
+# Force clean rebuild (required when frontend code changes aren't picked up)
+docker compose build --no-cache frontend && docker compose up -d frontend
+
+# Restart backend only (picks up .env.production changes without rebuilding)
+docker compose restart backend
+
+# Tail logs
+docker compose logs backend --tail=50
+docker compose logs frontend --tail=50
+```
+
+### Environment files on the server
+
+Two separate files serve different purposes:
+
+- `/app/.env` — read by Docker Compose for **build-time variable substitution** in `docker-compose.yml`. Must contain: `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_API_URL`, `DB_PASSWORD`, `DROPLET_IP`.
+- `/app/.env.production` — passed to containers at **runtime** via `env_file`. Must contain: `DATABASE_URL`, `CLERK_SECRET_KEY`, `CLERK_JWKS_URL`, `CLERK_ISSUER`, `CORS_EXTRA_ORIGINS`, LLM API keys.
+
+**Critical:** `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` are Docker build args baked into the Next.js bundle at build time. Changing them requires a full frontend rebuild — `docker compose restart` is not enough.
+
+### CORS
+
+Origins allowed by `backend/config.yaml → app.cors_origins`. To add origins without rebuilding, set `CORS_EXTRA_ORIGINS` (comma-separated) in `.env.production` and restart the backend:
+
+```bash
+# .env.production
+CORS_EXTRA_ORIGINS=https://your-frontend-tunnel.trycloudflare.com
+```
+
 ## Configuration
 
 Config is loaded by `backend/app/config.py` in priority order:
 
 1. `backend/config.yaml` — primary config (committed, dev defaults)
 2. DB overrides from `config_overrides` table (TODO, stub in place)
-3. Environment variables (secrets only): `DATABASE_URL`, `DATA_DIR`, `APP_ENV`, `VERITAS_CONFIG_PATH`
+3. Environment variables (secrets only): `DATABASE_URL`, `DATA_DIR`, `APP_ENV`, `VERITAS_CONFIG_PATH`, `CORS_EXTRA_ORIGINS`
 
 OCR env vars: `DEEPINFRA_API_KEY` (required for OCR), `DEEPINFRA_OLMOCR_URL`, `DEEPINFRA_OLMOCR_MODEL`.
 
@@ -239,7 +274,7 @@ Accepts `itemType: "obligation" | "risk"` and `initialValues`. When `decision ==
 ### Key API shapes
 See `MVP_ARCHITECTURE.md §6.2` for full request/response shapes.
 
-- **Pagination:** all lists return `{ items, next_cursor }`. Pass `cursor=0` to start.
+- **Pagination:** all lists return `{ items, next_cursor, total }`. `total` is the full count matching the query filters (not just the current page). Pass `cursor=0` to start.
 - **Status colors:** `needs_review` → yellow, `confirmed` → green, `rejected` → red/muted
 - **Severity colors:** `critical` → red, `high` → orange, `medium` → yellow, `low` → blue
 - **LLM severity:** displayed in `SeverityBadge` as override with indicator; falls back to system `severity`
