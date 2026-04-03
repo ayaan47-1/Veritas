@@ -76,7 +76,8 @@ def ocr_pdf_page(file_path: str, page_number: int) -> str:
         with request.urlopen(req, timeout=60) as resp:
             response = json.loads(resp.read().decode("utf-8"))
     except HTTPError as exc:
-        raise OCRUnavailableError(f"DeepInfra OCR HTTP error: {exc.code}") from exc
+        body = exc.read().decode("utf-8", errors="replace")[:500]
+        raise OCRUnavailableError(f"DeepInfra OCR HTTP error: {exc.code} — {body}") from exc
     except URLError as exc:
         raise OCRUnavailableError(f"DeepInfra OCR unavailable: {exc.reason}") from exc
 
