@@ -59,6 +59,7 @@ def ocr_pdf_page(file_path: str, page_number: int) -> str:
             }
         ],
         "temperature": 0,
+        "max_tokens": 4096,
     }
 
     body = json.dumps(payload).encode("utf-8")
