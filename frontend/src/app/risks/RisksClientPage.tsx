@@ -11,6 +11,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { getAssetDocuments, getAssets, getCurrentUser, getDocumentStatus, getRisks, reviewRisk } from "@/lib/api";
 import { csvFilename, downloadCsv } from "@/lib/csv";
 import { computeProgressPercent, isInProgressParseStatus, isTerminalParseStatus } from "@/lib/pipeline";
+import { summarizeText } from "@/lib/evidence-utils";
 import type { Asset, CurrentUser, ReviewDecision, Risk } from "@/lib/types";
 
 const SEVERITY_ORDER = { critical: 4, high: 3, medium: 2, low: 1 } as const;
@@ -369,7 +370,11 @@ export default function RisksClientPage() {
                 ) : (
                   sortedItems.map((item) => (
                     <tr key={item.id} className="border-t border-border align-top transition-colors hover:bg-bg-subtle">
-                      <td className="max-w-xl px-4 py-3 text-text-primary">{item.risk_text}</td>
+                      <td className="max-w-xs px-4 py-3 text-text-primary">
+                        <Link href={`/risks/${item.id}`} className="underline decoration-border underline-offset-4 hover:decoration-border-strong" title={item.risk_text}>
+                          {summarizeText(item.risk_text)}
+                        </Link>
+                      </td>
                       <td className="px-4 py-3 text-text-secondary">{item.risk_type}</td>
                       <td className="px-4 py-3"><SeverityBadge severity={item.severity} llmSeverity={item.llm_severity} /></td>
                       <td className="px-4 py-3"><StatusBadge status={item.status} /></td>

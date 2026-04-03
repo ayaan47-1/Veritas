@@ -143,6 +143,22 @@ export type ObligationDetail = Obligation & {
   evidence: ObligationEvidence[];
 };
 
+export type RiskEvidence = {
+  id: string;
+  document_id: string;
+  page_number: number;
+  quote: string;
+  raw_char_start: number;
+  raw_char_end: number;
+  normalized_char_start: number;
+  normalized_char_end: number;
+  source: string;
+};
+
+export type RiskDetail = Risk & {
+  evidence: RiskEvidence[];
+};
+
 export type NotificationEvent = {
   event_type: string;
   payload: Record<string, unknown>;

@@ -23,11 +23,22 @@ VeritasLayer is an AI Operational Intelligence Layer that ingests PDFs, runs a d
 
 ## Common Commands
 
+The repo has a `Makefile` at the root — prefer `make` targets over raw commands.
+
 ```bash
 # Install
-pip install -r backend/requirements.txt
+make install          # installs both backend and frontend deps
+pip install -r backend/requirements.txt  # backend only
+
+# Dev servers (each in its own terminal)
+make backend          # uvicorn on :8000 (auto-reload)
+make frontend         # Next.js on :3000
+make inngest          # Inngest dashboard on :8288
+make db-up            # start Postgres container
+make dev              # backend + frontend together
 
 # Run tests
+make test
 python3 -m pytest -q backend/tests
 python3 -m pytest backend/tests/test_pipeline_tasks.py::test_parse_document_parses_pdf_pages_and_counts_scanned -v
 
@@ -38,16 +49,13 @@ python3 -m compileall backend/app backend/alembic backend/tools -q
 python3 -m alembic -c backend/alembic.ini upgrade head
 python3 -m alembic -c backend/alembic.ini revision --autogenerate -m "description"
 python3 -m alembic -c backend/alembic.ini heads
-# Current head chain: e1f2a3b4c5d6 → a9b8c7d6e5f4
-
-# Dev services
-uvicorn backend.app.main:app --reload
-npx inngest-cli@latest dev -u http://localhost:8000/api/inngest  # job dashboard at localhost:8288
+# Current head chain: c03dec85f67a → e1f2a3b4c5d6 → a9b8c7d6e5f4 → f3c7beac04b9 → 7c1d4e2b9a10 → b2e4f6a8c0d1 (HEAD)
 
 # Eval / benchmark tools (require API key env vars)
 python3 -m backend.tools.generate_ground_truth --document-id <uuid>   # AI-labels all obligations/risks
 python3 -m backend.tools.evaluate_pipeline --document-id <uuid>       # precision/recall vs ground truth
 python3 -m backend.tools.rerun_extraction --document-id <uuid>        # re-run stages 6–10b on existing doc
+python3 -m backend.tools.rerun_ocr --document-id <uuid>               # re-run OCR on scanned pages only
 ```
 
 ## Docker Deployment
@@ -178,8 +186,17 @@ Key relationships:
 ### API (`backend/app/routers/`)
 
 - `POST /ingest` — multipart: `asset_id`, `uploaded_by`, `file`. SHA256 dedup, 500-page limit.
-- `GET /documents/{id}`, `GET /documents/{id}/status`
-- `POST /obligations/{id}/review`, `POST /risks/{id}/review` — `decision: approve|reject|edit_approve`, `field_edits` (JSONB), `reviewer_confidence`, `reason`
+- `GET /documents/{id}`, `GET /documents/{id}/status`, `DELETE /documents/{id}`, `GET /documents/{id}/pdf`, `GET /documents/{id}/pages/{page_number}`, `POST /documents/{id}/process`
+- `GET /assets`, `POST /assets`, `GET /assets/{id}`, `DELETE /assets/{id}`, `GET /assets/{id}/documents`
+- `GET /obligations`, `GET /obligations/{id}`, `POST /obligations/{id}/review`
+- `GET /risks`, `GET /risks/{id}`, `POST /risks/{id}/review` — `decision: approve|reject|edit_approve`, `field_edits` (JSONB), `reviewer_confidence`, `reason`
+- `GET /users/me`, `GET /users`, `PUT /users/{id}/role`, `GET /users/{id}/assets`, `POST /users/{id}/assets`, `DELETE /users/{id}/assets/{asset_id}`
+- `GET /notifications`, `PUT /notifications/{id}/read`
+- `GET /entities`, `GET /entities/suggestions`, `POST /entities/{id}/merge`, `POST /entity-mentions/{id}/resolve`
+- `GET /summaries/weekly` (asset_id required), `GET /summaries/weekly/narrative`
+- `POST /compliance/reports`, `GET /compliance/reports/{id}`, `GET /compliance/reports`
+- `POST /ifc/models`, `GET /ifc/models/{id}`
+- `GET /config`, `PUT /config/{key}`, `DELETE /config/{key}` (admin only)
 - `GET /health`
 
 ### Eval Harness (`backend/tools/`)
@@ -241,8 +258,8 @@ Implemented frontend screens:
 - Notifications bell dropdown (header overlay)
 - Review modal with `edit_approve` field editing (text, severity, risk_type editable inline)
 - Status/severity badges — `SeverityBadge` shows `llm_severity` override with visual indicator when present
-
-**Next:** `src/app/admin/users/page.tsx`, `src/app/admin/config/page.tsx`.
+- Admin user management (`/admin/users`)
+- Admin config editor (`/admin/config`)
 
 ## Frontend Implementation (for Codex)
 
@@ -291,6 +308,8 @@ frontend/src/
     risks/page.tsx                # risks table (RisksClientPage.tsx)
     assets/[id]/documents/page.tsx
     documents/[id]/page.tsx       # status polling + obligations/risks tabs
+    admin/users/page.tsx          # user management (UsersClientPage.tsx)
+    admin/config/page.tsx         # config editor (ConfigClientPage.tsx)
   components/
     ReviewModal.tsx               # approve/reject/edit_approve modal
     StatusBadge.tsx               # needs_review/confirmed/rejected pill
