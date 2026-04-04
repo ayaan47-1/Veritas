@@ -21,7 +21,7 @@ from .routers import users as users_router
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Veritas API")
+    app = FastAPI(title="VeritasLayer API")
 
     if settings.cors_origins:
         app.add_middleware(

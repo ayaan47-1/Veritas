@@ -30,5 +30,5 @@ export function downloadCsv(
 export function csvFilename(prefix: string, assetName: string): string {
   const date = new Date().toISOString().slice(0, 10);
   const safe = assetName.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+/g, "_");
-  return `Veritas_${prefix}_${safe}_${date}.csv`;
+  return `VeritasLayer_${prefix}_${safe}_${date}.csv`;
 }
