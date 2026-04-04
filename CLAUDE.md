@@ -31,7 +31,7 @@ make install          # installs both backend and frontend deps
 pip install -r backend/requirements.txt  # backend only
 
 # Dev servers (each in its own terminal)
-make backend          # uvicorn on :8000 (auto-reload)
+make backend          # uvicorn on :8001 (auto-reload)
 make frontend         # Next.js on :3000
 make inngest          # Inngest dashboard on :8288
 make db-up            # start Postgres container
@@ -246,15 +246,16 @@ Service-layer tests (`test_chunking.py`, `test_normalization.py`) — pure funct
 
 ## Implementation Status
 
-All 13 pipeline steps implemented. All API routers implemented. Clerk JWT auth live. Current baseline: **80 passing tests**.
+All 13 pipeline steps implemented. All API routers implemented. Clerk JWT auth live. Current baseline: **120 passing tests** (backend pytest).
 
 Implemented frontend screens:
 - Asset list (`/`) — cards link to `/assets/[id]/documents`
-- Obligations table (`/obligations`)
-- Risks table (`/risks`)
+- Obligations table (`/obligations`) — text truncated with `summarizeText()`
+- Risks table (`/risks`) — text truncated, rows link to `/risks/[id]`
 - Asset document list + upload (`/assets/[id]/documents`)
 - Document detail with status polling + tabs (`/documents/[id]`)
-- Obligation evidence viewer (`/obligations/[id]`)
+- Obligation evidence viewer (`/obligations/[id]`) — formatted quotes, visible surrounding context
+- Risk evidence viewer (`/risks/[id]`) — formatted quotes, confidence breakdown scorecard
 - Notifications bell dropdown (header overlay)
 - Review modal with `edit_approve` field editing (text, severity, risk_type editable inline)
 - Status/severity badges — `SeverityBadge` shows `llm_severity` override with visual indicator when present
@@ -317,6 +318,9 @@ frontend/src/
   lib/
     api.ts                        # typed fetch helpers
     types.ts                      # TypeScript types (includes llm_severity, llm_quality_confidence)
+    evidence-utils.ts             # summarizeText, formatQuoteAsProse, buildContextDigest (tested)
+    csv.ts                        # downloadCsv, csvFilename helpers
+    __tests__/evidence-utils.test.ts
   proxy.ts                        # clerkMiddleware()
 ```
 
@@ -324,5 +328,5 @@ frontend/src/
 ```
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
 CLERK_SECRET_KEY=sk_...
-NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=http://localhost:8001
 ```
