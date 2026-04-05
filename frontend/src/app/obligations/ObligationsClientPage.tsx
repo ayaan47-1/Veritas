@@ -74,6 +74,7 @@ export default function ObligationsClientPage() {
   const [sortKey, setSortKey] = useState<SortKey>("severity");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [domainFilter, setDomainFilter] = useState<string>("all");
+  const [showRejected, setShowRejected] = useState(false);
   const [processingState, setProcessingState] = useState<ProcessingState | null>(null);
   const hadActiveProcessingRef = useRef(false);
 
@@ -225,11 +226,11 @@ export default function ObligationsClientPage() {
 
   const visibleItems = useMemo(() => {
     return sortedItems.filter((item) => {
-      if (item.system_confidence === 0) return false;
+      if (!showRejected && item.status === "rejected") return false;
       if (domainFilter !== "all" && (item.document_domain ?? item.domain ?? "general") !== domainFilter) return false;
       return true;
     });
-  }, [domainFilter, sortedItems]);
+  }, [domainFilter, showRejected, sortedItems]);
   const showProcessingPanel = Boolean(assetId && processingState);
   const showWaitingOnly = Boolean(showProcessingPanel && items.length === 0);
 
@@ -372,6 +373,15 @@ export default function ObligationsClientPage() {
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className="ml-4 inline-flex items-center gap-1.5 text-sm text-text-secondary">
+                <input
+                  type="checkbox"
+                  checked={showRejected}
+                  onChange={(event) => setShowRejected(event.target.checked)}
+                  className="rounded border-border"
+                />
+                Show rejected
               </label>
             </div>
             <table className="w-full border-collapse text-sm">
