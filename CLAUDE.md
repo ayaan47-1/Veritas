@@ -250,8 +250,8 @@ All 13 pipeline steps implemented. All API routers implemented. Clerk JWT auth l
 
 Implemented frontend screens:
 - Asset list (`/`) — cards link to `/assets/[id]/documents`
-- Obligations table (`/obligations`) — text truncated with `summarizeText()`
-- Risks table (`/risks`) — text truncated, rows link to `/risks/[id]`
+- Obligations table (`/obligations`) — text truncated with `summarizeText()`, rejected items hidden by default (toggle to show)
+- Risks table (`/risks`) — text truncated, rows link to `/risks/[id]`, rejected items hidden by default (toggle to show)
 - Asset document list + upload (`/assets/[id]/documents`)
 - Document detail with status polling + tabs (`/documents/[id]`)
 - Obligation evidence viewer (`/obligations/[id]`) — formatted quotes, visible surrounding context
