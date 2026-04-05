@@ -72,6 +72,7 @@ export default function RisksClientPage() {
   const [initialDecision, setInitialDecision] = useState<ReviewDecision>("approve");
   const [sortKey, setSortKey] = useState<SortKey>("severity");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [showRejected, setShowRejected] = useState(false);
   const [processingState, setProcessingState] = useState<ProcessingState | null>(null);
   const hadActiveProcessingRef = useRef(false);
 
@@ -212,7 +213,7 @@ export default function RisksClientPage() {
 
   const sortedItems = useMemo(() => {
     return [...items]
-      .filter((item) => item.system_confidence > 0)
+      .filter((item) => showRejected || item.status !== "rejected")
       .sort((a, b) => {
         let cmp = 0;
         if (sortKey === "severity") cmp = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
@@ -221,7 +222,7 @@ export default function RisksClientPage() {
         else if (sortKey === "system_confidence") cmp = a.system_confidence - b.system_confidence;
         return sortDir === "desc" ? -cmp : cmp;
       });
-  }, [items, sortKey, sortDir]);
+  }, [items, showRejected, sortKey, sortDir]);
   const showProcessingPanel = Boolean(assetId && processingState);
   const showWaitingOnly = Boolean(showProcessingPanel && items.length === 0);
 
@@ -349,6 +350,17 @@ export default function RisksClientPage() {
             </section>
           ) : (
           <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+            <div className="border-b border-border bg-bg-subtle px-4 py-3">
+              <label className="inline-flex items-center gap-1.5 text-sm text-text-secondary">
+                <input
+                  type="checkbox"
+                  checked={showRejected}
+                  onChange={(event) => setShowRejected(event.target.checked)}
+                  className="rounded border-border"
+                />
+                Show rejected
+              </label>
+            </div>
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border bg-bg-subtle">
