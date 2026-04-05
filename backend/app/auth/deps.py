@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Document, Obligation, OIDCProvider, Risk, User, UserAssetAssignment, UserRole
+from ..models import Asset, Document, Obligation, OIDCProvider, Risk, User, UserAssetAssignment, UserRole
 from .clerk import ClerkAuthError, verify_clerk_token
 
 
@@ -73,6 +73,9 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 
 def _ensure_asset_access(db: Session, current_user: User, asset_id: UUID) -> None:
     if current_user.role == UserRole.admin:
+        asset = db.query(Asset).filter(Asset.id == asset_id).first()
+        if asset is None or asset.created_by != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to this asset")
         return
     assignment = (
         db.query(UserAssetAssignment)
@@ -92,11 +95,9 @@ def require_asset_scope(asset_param: str, required_for_non_admin: bool = False) 
         current_user: User = Depends(get_current_user),
         db: Session = Depends(get_db),
     ) -> User:
-        if current_user.role == UserRole.admin:
-            return current_user
         raw_asset_id = request.path_params.get(asset_param) or request.query_params.get(asset_param)
         if not raw_asset_id:
-            if required_for_non_admin:
+            if required_for_non_admin and current_user.role != UserRole.admin:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="asset_id required")
             return current_user
         try:

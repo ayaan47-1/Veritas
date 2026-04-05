@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from ..auth.deps import require_asset_scope, require_obligation_access, require_reviewer_or_admin
+from ..auth.deps import get_current_user, require_asset_scope, require_obligation_access, require_reviewer_or_admin
 from ..database import get_db
 from ..models import (
+    Asset,
     AuditAction,
     AuditLog,
     Document,
@@ -20,6 +21,8 @@ from ..models import (
     ReviewDecision,
     ReviewStatus,
     Severity,
+    User,
+    UserRole,
 )
 
 router = APIRouter(prefix="/obligations", tags=["obligations"])
@@ -92,6 +95,7 @@ def list_obligations(
     asset_id: UUID | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     cursor: int = Query(default=0, ge=0),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     query = db.query(Obligation)
@@ -103,6 +107,10 @@ def list_obligations(
         query = query.filter(Obligation.document_id == document_id)
     if asset_id is not None:
         query = query.join(Document, Obligation.document_id == Document.id).filter(Document.asset_id == asset_id)
+    elif current_user.role == UserRole.admin:
+        query = query.join(Document, Obligation.document_id == Document.id).join(
+            Asset, Document.asset_id == Asset.id
+        ).filter(Asset.created_by == current_user.id)
 
     total = query.count()
     rows = query.order_by(Obligation.created_at.desc()).offset(cursor).limit(limit + 1).all()

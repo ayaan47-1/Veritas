@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from ..auth.deps import require_admin, require_asset_scope, require_authenticated
+from ..auth.deps import get_current_user, require_admin, require_asset_scope
 from ..database import get_db
 from ..models import (
     Asset,
@@ -27,7 +27,9 @@ from ..models import (
     ReviewStatus,
     Risk,
     RiskReview,
+    User,
     UserAssetAssignment,
+    UserRole,
 )
 
 router = APIRouter(prefix="/assets", tags=["assets"])
@@ -65,12 +67,17 @@ def _serialize_document(document: Document) -> dict:
     }
 
 
-@router.get("", dependencies=[Depends(require_authenticated)])
-def list_assets(user_id: UUID | None = Query(default=None), db: Session = Depends(get_db)):
+@router.get("")
+def list_assets(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     query = db.query(Asset)
-    if user_id is not None:
+    if current_user.role == UserRole.admin:
+        query = query.filter(Asset.created_by == current_user.id)
+    else:
         query = query.join(UserAssetAssignment, UserAssetAssignment.asset_id == Asset.id).filter(
-            UserAssetAssignment.user_id == user_id
+            UserAssetAssignment.user_id == current_user.id
         )
     assets = query.order_by(Asset.name.asc()).all()
 
@@ -157,7 +164,7 @@ def create_asset(payload: AssetCreateIn, db: Session = Depends(get_db)):
     return _serialize_asset(asset)
 
 
-@router.delete("/{asset_id}", dependencies=[Depends(require_admin)])
+@router.delete("/{asset_id}", dependencies=[Depends(require_admin), Depends(require_asset_scope("asset_id"))])
 def delete_asset(asset_id: UUID, db: Session = Depends(get_db)):
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if asset is None:
