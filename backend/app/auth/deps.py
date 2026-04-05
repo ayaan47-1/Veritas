@@ -45,6 +45,12 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account inactive")
     else:
         user.last_login_at = datetime.now(timezone.utc)
+        jwt_email = payload.get("email")
+        jwt_name = payload.get("name")
+        if jwt_email and user.email != jwt_email:
+            user.email = jwt_email
+        if jwt_name and user.name != jwt_name:
+            user.name = jwt_name
         db.commit()
     return user
 
