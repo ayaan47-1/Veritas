@@ -368,6 +368,10 @@ domains:
         Extract all risks, liabilities, and penalty clauses from this document.
     doc_type_aligned: {}
 
+verification:
+  fuzzy_threshold: 0.85
+  fuzzy_penalty: -10
+
 scoring:
   weights:
     quote_verified: 40

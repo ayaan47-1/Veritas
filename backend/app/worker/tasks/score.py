@@ -59,6 +59,7 @@ def _score_config() -> tuple[dict[str, int], dict[str, int]]:
         "ocr_source": -15,
         "contradiction": -30,
         "missing_deadline": -10,
+        "fuzzy_verified": -10,
     }
 
     scoring_cfg = settings.raw.get("scoring", {})
@@ -143,6 +144,9 @@ def _score_obligation(
     if any(ev.source == TextSource.ocr for ev in evidence):
         score += penalties["ocr_source"]
 
+    if any(ev.verification_method == "fuzzy" for ev in evidence):
+        score += penalties["fuzzy_verified"]
+
     if obligation.contradiction_flag:
         score += penalties["contradiction"]
 
@@ -183,6 +187,9 @@ def _score_risk(
 
     if any(ev.source == TextSource.ocr for ev in evidence):
         score += penalties["ocr_source"]
+
+    if any(ev.verification_method == "fuzzy" for ev in evidence):
+        score += penalties["fuzzy_verified"]
 
     if risk.contradiction_flag:
         score += penalties["contradiction"]

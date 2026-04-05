@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 import hashlib
 import logging
 import re
@@ -8,6 +9,7 @@ import uuid
 
 from sqlalchemy.orm import Session
 
+from ...config import settings
 from ...database import SessionLocal
 from ...models import (
     Document,
@@ -62,6 +64,60 @@ def _find_quote_in_pages(quote: str, pages: list[DocumentPage]):
     return None
 
 
+def _fuzzy_find_quote_in_pages(
+    quote: str, pages: list[DocumentPage], threshold: float
+) -> tuple[DocumentPage, str, int, int, float] | None:
+    """Fuzzy fallback: sliding-window SequenceMatcher across pages.
+
+    Returns (page, matched_page_text, start, end, similarity) or None.
+    """
+    normalized_quote = normalize_text(quote)
+    if not normalized_quote:
+        return None
+
+    quote_len = len(normalized_quote)
+    # Allow windows 20% shorter to 20% longer than the quote.
+    min_window = max(1, int(quote_len * 0.8))
+    max_window = int(quote_len * 1.2)
+
+    best: tuple[DocumentPage, str, int, int, float] | None = None
+    best_ratio = 0.0
+
+    for page in pages:
+        page_text = page.normalized_text or ""
+        if not page_text:
+            continue
+        # Quick check: skip pages with very low overall similarity.
+        if SequenceMatcher(None, normalized_quote, page_text).quick_ratio() < 0.3:
+            continue
+
+        for win_size in range(min_window, max_window + 1, max(1, (max_window - min_window) // 10)):
+            for start in range(0, len(page_text) - win_size + 1, max(1, win_size // 4)):
+                candidate = page_text[start : start + win_size]
+                ratio = SequenceMatcher(None, normalized_quote, candidate).ratio()
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best = (page, candidate, start, start + win_size, ratio)
+                    if ratio >= 0.98:
+                        # Close enough — stop early.
+                        break
+            if best_ratio >= 0.98:
+                break
+        if best_ratio >= 0.98:
+            break
+
+    if best is not None and best_ratio >= threshold:
+        return best
+    return None
+
+
+def _verification_config() -> tuple[float, int]:
+    cfg = settings.raw.get("verification", {})
+    threshold = float(cfg.get("fuzzy_threshold", 0.85))
+    penalty = int(cfg.get("fuzzy_penalty", -10))
+    return threshold, penalty
+
+
 def _verify_obligations(
     db: Session,
     document: Document,
@@ -70,21 +126,35 @@ def _verify_obligations(
 ) -> dict[uuid.UUID, list[ObligationEvidence]]:
     seen_keys: set[tuple[str, uuid.UUID, int, int, int]] = set()
     evidence_by_obligation: dict[uuid.UUID, list[ObligationEvidence]] = {}
+    fuzzy_threshold, _ = _verification_config()
 
     for obligation in obligations:
         quote = obligation.obligation_text or ""
         obligation.has_external_reference = _has_external_reference(quote)
 
         located = _find_quote_in_pages(quote, pages)
-        if not located:
-            obligation.status = ReviewStatus.rejected
-            db.add(obligation)
-            continue
+        verification_method = "exact"
+        fuzzy_similarity: float | None = None
 
-        page, normalized_quote, start, end = located
+        if not located:
+            fuzzy_result = _fuzzy_find_quote_in_pages(quote, pages, fuzzy_threshold)
+            if not fuzzy_result:
+                obligation.status = ReviewStatus.rejected
+                db.add(obligation)
+                continue
+            page, matched_text, start, end, similarity = fuzzy_result
+            normalized_quote = matched_text
+            verification_method = "fuzzy"
+            fuzzy_similarity = similarity
+            logger.info(
+                "Fuzzy-verified obligation %s (similarity=%.3f) on page %s",
+                obligation.id, similarity, page.page_number,
+            )
+        else:
+            page, normalized_quote, start, end = located
+
         dedup_key = (_sha256(normalized_quote), document.id, page.page_number, start, end)
         if dedup_key in seen_keys:
-            # Duplicate suppression within verification run.
             continue
         seen_keys.add(dedup_key)
 
@@ -104,6 +174,8 @@ def _verify_obligations(
             bbox_x2=None,
             bbox_y2=None,
             source=page.text_source,
+            verification_method=verification_method,
+            fuzzy_similarity=fuzzy_similarity,
         )
         db.add(evidence)
         db.add(obligation)
@@ -116,18 +188,33 @@ def _verify_obligations(
 def _verify_risks(db: Session, document: Document, pages: list[DocumentPage], risks: list[Risk]) -> dict[uuid.UUID, list[RiskEvidence]]:
     seen_keys: set[tuple[str, uuid.UUID, int, int, int]] = set()
     evidence_by_risk: dict[uuid.UUID, list[RiskEvidence]] = {}
+    fuzzy_threshold, _ = _verification_config()
 
     for risk in risks:
         quote = risk.risk_text or ""
         risk.has_external_reference = _has_external_reference(quote)
 
         located = _find_quote_in_pages(quote, pages)
-        if not located:
-            risk.status = ReviewStatus.rejected
-            db.add(risk)
-            continue
+        verification_method = "exact"
+        fuzzy_similarity: float | None = None
 
-        page, normalized_quote, start, end = located
+        if not located:
+            fuzzy_result = _fuzzy_find_quote_in_pages(quote, pages, fuzzy_threshold)
+            if not fuzzy_result:
+                risk.status = ReviewStatus.rejected
+                db.add(risk)
+                continue
+            page, matched_text, start, end, similarity = fuzzy_result
+            normalized_quote = matched_text
+            verification_method = "fuzzy"
+            fuzzy_similarity = similarity
+            logger.info(
+                "Fuzzy-verified risk %s (similarity=%.3f) on page %s",
+                risk.id, similarity, page.page_number,
+            )
+        else:
+            page, normalized_quote, start, end = located
+
         dedup_key = (_sha256(normalized_quote), document.id, page.page_number, start, end)
         if dedup_key in seen_keys:
             continue
@@ -149,6 +236,8 @@ def _verify_risks(db: Session, document: Document, pages: list[DocumentPage], ri
             bbox_x2=None,
             bbox_y2=None,
             source=page.text_source,
+            verification_method=verification_method,
+            fuzzy_similarity=fuzzy_similarity,
         )
         db.add(evidence)
         db.add(risk)
