@@ -23,7 +23,7 @@ class Document(Base, UUIDPrimaryKeyMixin):
     source_name: Mapped[str] = mapped_column(String, nullable=False)
     file_path: Mapped[str] = mapped_column(String, nullable=False)
     processed_file_path: Mapped[str | None] = mapped_column(String)
-    sha256: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    sha256: Mapped[str] = mapped_column(String, nullable=False)
     mime_type: Mapped[str] = mapped_column(String, nullable=False)
     uploaded_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -39,6 +39,10 @@ class Document(Base, UUIDPrimaryKeyMixin):
     total_pages: Mapped[int | None] = mapped_column(Integer)
     scanned_page_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     notes: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        UniqueConstraint("sha256", "asset_id", name="uq_document_sha256_asset"),
+    )
 
     asset = relationship("Asset", back_populates="documents", primaryjoin="Asset.id==Document.asset_id")
     pages = relationship("DocumentPage", back_populates="document")

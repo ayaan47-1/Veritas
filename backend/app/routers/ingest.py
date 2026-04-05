@@ -45,7 +45,11 @@ async def ingest_document(
         raise HTTPException(status_code=400, detail="Only PDF or .txt uploads are supported")
 
     sha256 = hashlib.sha256(content).hexdigest()
-    existing = db.query(Document).filter(Document.sha256 == sha256).first()
+    existing = (
+        db.query(Document)
+        .filter(Document.sha256 == sha256, Document.asset_id == asset_id)
+        .first()
+    )
     if existing:
         raise HTTPException(status_code=409, detail="Duplicate document (sha256 match)")
 

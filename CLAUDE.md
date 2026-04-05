@@ -49,7 +49,7 @@ python3 -m compileall backend/app backend/alembic backend/tools -q
 python3 -m alembic -c backend/alembic.ini upgrade head
 python3 -m alembic -c backend/alembic.ini revision --autogenerate -m "description"
 python3 -m alembic -c backend/alembic.ini heads
-# Current head chain: c03dec85f67a → e1f2a3b4c5d6 → a9b8c7d6e5f4 → f3c7beac04b9 → 7c1d4e2b9a10 → b2e4f6a8c0d1 (HEAD)
+# Current head chain: c03dec85f67a → e1f2a3b4c5d6 → a9b8c7d6e5f4 → f3c7beac04b9 → 7c1d4e2b9a10 → b2e4f6a8c0d1 → c4d5e6f7a8b9 (HEAD)
 
 # Eval / benchmark tools (require API key env vars)
 python3 -m backend.tools.generate_ground_truth --document-id <uuid>   # AI-labels all obligations/risks
@@ -219,7 +219,7 @@ Service-layer tests (`test_chunking.py`, `test_normalization.py`) — pure funct
 
 `test_llm_service.py` patches `backend.app.services.llm.litellm` (the module-level import).
 
-**Current baseline: 80 tests, all passing.**
+**Current baseline: 126 tests, all passing.**
 
 ## Non-Negotiable Rules
 
