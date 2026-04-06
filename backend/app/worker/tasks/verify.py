@@ -56,7 +56,7 @@ def _find_quote_in_pages(quote: str, pages: list[DocumentPage]):
         return None
 
     for page in pages:
-        page_text = page.normalized_text or ""
+        page_text = normalize_text(page.normalized_text or "")
         idx = page_text.find(normalized_quote)
         if idx >= 0:
             end = idx + len(normalized_quote)
@@ -84,7 +84,7 @@ def _fuzzy_find_quote_in_pages(
     best_ratio = 0.0
 
     for page in pages:
-        page_text = page.normalized_text or ""
+        page_text = normalize_text(page.normalized_text or "")
         if not page_text:
             continue
         # Quick check: skip pages with very low overall similarity.
