@@ -326,3 +326,109 @@ def test_verify_skips_duplicate_risk_evidence_when_contradiction_reuses_existing
     assert len(conflict_risks) == 1
     assert len(db.contradictions) == 1
     assert len(db.risk_evidence) == 2
+
+
+def test_verify_sentence_split_finds_concatenated_quote(monkeypatch):
+    """LLM concatenated two paragraphs; sentence-split should find the longest one."""
+    document = _make_document()
+    # Page has both sentences but separated by other text
+    page_text = (
+        "Tenant shall pay rent on the first of each month. "
+        "Other unrelated text here. "
+        "If tenant fails to pay, landlord may charge a late fee of fifty dollars."
+    )
+    page = _make_page(document.id, page_text)
+    # LLM combined them with REMEDY: marker
+    combined_quote = (
+        "Tenant shall pay rent on the first of each month. "
+        "REMEDY: If tenant fails to pay, landlord may charge a late fee of fifty dollars."
+    )
+    ob = _make_obligation(document.id, combined_quote)
+
+    db = FakeSession(document=document, pages=[page], obligations=[ob], risks=[])
+    monkeypatch.setattr(verify_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(verify_task, "update_parse_status", lambda *_a, **_k: None)
+
+    verify_task.verify_extractions(document.id)
+
+    assert ob.status == ReviewStatus.needs_review, "Should not be rejected"
+    assert len(db.obligation_evidence) == 1
+    ev = db.obligation_evidence[0]
+    assert ev.verification_method == "sentence"
+
+
+def test_verify_sentence_split_handles_legal_section_markers(monkeypatch):
+    """Quotes with PROVIDED THAT: and EXCEPTION: should split on those markers."""
+    document = _make_document()
+    clause = "Contractor shall deliver materials by June fifteenth of the current year"
+    page = _make_page(document.id, f"Section 3. {clause}. End of section.")
+    combined = f"{clause}. PROVIDED THAT: Delivery may be delayed due to weather."
+    ob = _make_obligation(document.id, combined)
+
+    db = FakeSession(document=document, pages=[page], obligations=[ob], risks=[])
+    monkeypatch.setattr(verify_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(verify_task, "update_parse_status", lambda *_a, **_k: None)
+
+    verify_task.verify_extractions(document.id)
+
+    assert ob.status == ReviewStatus.needs_review
+    assert len(db.obligation_evidence) == 1
+    assert db.obligation_evidence[0].verification_method == "sentence"
+
+
+def test_verify_sentence_split_skips_short_fragments(monkeypatch):
+    """Short fragments like 'Yes.' or 'No.' should not be used as evidence."""
+    document = _make_document()
+    long_sentence = "The contractor shall deliver all materials by the specified deadline"
+    page = _make_page(document.id, f"Intro. {long_sentence}. Closing.")
+    # Short fragments + the real sentence
+    combined = f"Yes. No. {long_sentence}."
+    ob = _make_obligation(document.id, combined)
+
+    db = FakeSession(document=document, pages=[page], obligations=[ob], risks=[])
+    monkeypatch.setattr(verify_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(verify_task, "update_parse_status", lambda *_a, **_k: None)
+
+    verify_task.verify_extractions(document.id)
+
+    assert ob.status == ReviewStatus.needs_review
+    assert len(db.obligation_evidence) == 1
+
+
+def test_verify_sentence_split_falls_through_to_fuzzy(monkeypatch):
+    """If neither exact nor sentence-split matches, fuzzy should still be tried on the full quote."""
+    document = _make_document()
+    # Page has text very close to the full quote (minor typo)
+    page = _make_page(document.id, "The landlord shall maintian the property in habitable condition at all times.")
+    # Single-sentence quote (no split possible) with a typo difference
+    ob = _make_obligation(document.id, "The landlord shall maintain the property in habitable condition at all times.")
+
+    db = FakeSession(document=document, pages=[page], obligations=[ob], risks=[])
+    monkeypatch.setattr(verify_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(verify_task, "update_parse_status", lambda *_a, **_k: None)
+
+    verify_task.verify_extractions(document.id)
+
+    # Should find via fuzzy match (the typo "maintian" is close enough)
+    assert ob.status == ReviewStatus.needs_review
+    assert len(db.obligation_evidence) == 1
+    assert db.obligation_evidence[0].verification_method == "fuzzy"
+
+
+def test_verify_sentence_split_works_for_risks_too(monkeypatch):
+    """Sentence-split should also work for risk verification, not just obligations."""
+    document = _make_document()
+    risk_sentence = "If tenant fails to pay rent, landlord may terminate the lease agreement"
+    page = _make_page(document.id, f"Terms apply. {risk_sentence}. See appendix.")
+    combined = f"Tenant must pay rent monthly. REMEDY: {risk_sentence}."
+    risk = _make_risk(document.id, combined)
+
+    db = FakeSession(document=document, pages=[page], obligations=[], risks=[risk])
+    monkeypatch.setattr(verify_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(verify_task, "update_parse_status", lambda *_a, **_k: None)
+
+    verify_task.verify_extractions(document.id)
+
+    assert risk.status == ReviewStatus.needs_review, "Risk should not be rejected"
+    assert len(db.risk_evidence) == 1
+    assert db.risk_evidence[0].verification_method == "sentence"

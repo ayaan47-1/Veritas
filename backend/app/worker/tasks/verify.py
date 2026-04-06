@@ -111,6 +111,37 @@ def _fuzzy_find_quote_in_pages(
     return None
 
 
+_SECTION_MARKER_RE = re.compile(
+    r"(?:REMEDY|PROVIDED THAT|EXCEPTION|NOTE|WARNING|CONDITION|PROVISO)\s*:",
+    re.IGNORECASE,
+)
+
+_SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
+
+_MIN_SENTENCE_LEN = 30
+
+
+def _sentence_find_quote_in_pages(
+    quote: str, pages: list[DocumentPage],
+) -> tuple[DocumentPage, str, int, int] | None:
+    """Split a multi-sentence quote and try to match individual sentences."""
+    # Split on legal section markers first, then on sentence boundaries
+    parts = _SECTION_MARKER_RE.split(quote)
+    sentences: list[str] = []
+    for part in parts:
+        sentences.extend(_SENTENCE_BOUNDARY_RE.split(part))
+
+    # Filter short fragments and sort longest first
+    candidates = [s.strip() for s in sentences if len(s.strip()) >= _MIN_SENTENCE_LEN]
+    candidates.sort(key=len, reverse=True)
+
+    for sentence in candidates:
+        result = _find_quote_in_pages(sentence, pages)
+        if result is not None:
+            return result
+    return None
+
+
 def _verification_config() -> tuple[float, int]:
     cfg = settings.raw.get("verification", {})
     threshold = float(cfg.get("fuzzy_threshold", 0.85))
@@ -135,6 +166,12 @@ def _verify_obligations(
         located = _find_quote_in_pages(quote, pages)
         verification_method = "exact"
         fuzzy_similarity: float | None = None
+
+        if not located:
+            sentence_result = _sentence_find_quote_in_pages(quote, pages)
+            if sentence_result:
+                located = sentence_result
+                verification_method = "sentence"
 
         if not located:
             fuzzy_result = _fuzzy_find_quote_in_pages(quote, pages, fuzzy_threshold)
@@ -197,6 +234,12 @@ def _verify_risks(db: Session, document: Document, pages: list[DocumentPage], ri
         located = _find_quote_in_pages(quote, pages)
         verification_method = "exact"
         fuzzy_similarity: float | None = None
+
+        if not located:
+            sentence_result = _sentence_find_quote_in_pages(quote, pages)
+            if sentence_result:
+                located = sentence_result
+                verification_method = "sentence"
 
         if not located:
             fuzzy_result = _fuzzy_find_quote_in_pages(quote, pages, fuzzy_threshold)
