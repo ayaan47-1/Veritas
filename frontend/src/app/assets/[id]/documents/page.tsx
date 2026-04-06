@@ -83,7 +83,8 @@ export default function AssetDocumentsPage() {
         setIsLoading(false);
       }
     },
-    [assetId, docType, parseStatus, getToken],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getToken is stable but changes identity
+    [assetId, docType, parseStatus],
   );
 
   useEffect(() => {
