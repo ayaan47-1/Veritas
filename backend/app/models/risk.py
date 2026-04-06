@@ -78,6 +78,8 @@ class RiskEvidence(Base, UUIDPrimaryKeyMixin):
     bbox_x2: Mapped[float | None] = mapped_column(Float)
     bbox_y2: Mapped[float | None] = mapped_column(Float)
     source: Mapped[TextSource] = mapped_column(Enum(TextSource), nullable=False)
+    verification_method: Mapped[str | None] = mapped_column(String, nullable=True)
+    fuzzy_similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     risk = relationship("Risk", back_populates="evidence", primaryjoin="Risk.id==RiskEvidence.risk_id")
