@@ -12,6 +12,7 @@ from ...models import (
     Obligation,
     ObligationEvidence,
     ParseStatus,
+    ReviewStatus,
     Risk,
     RiskEvidence,
     Severity,
@@ -167,6 +168,12 @@ def rescore_with_llm(document_id: str) -> dict[str, object]:
                 raw_conf = entry.get("quality_confidence")
                 if isinstance(raw_conf, (int, float)):
                     item.llm_quality_confidence = _clamp(int(raw_conf))
+                    if item.llm_quality_confidence < 30 and item.status == ReviewStatus.needs_review:
+                        item.status = ReviewStatus.rejected
+                        logger.info(
+                            "LLM confidence %d < 30 for item %s — downgrading to rejected",
+                            item.llm_quality_confidence, item.id,
+                        )
 
                 db.add(item)
                 updated_item_count += 1

@@ -144,7 +144,12 @@ def _score_obligation(
     if any(ev.source == TextSource.ocr for ev in evidence):
         score += penalties["ocr_source"]
 
-    if any(ev.verification_method == "fuzzy" for ev in evidence):
+    fuzzy_evidence = [ev for ev in evidence if ev.verification_method == "fuzzy"]
+    if fuzzy_evidence:
+        worst_similarity = min(getattr(ev, "fuzzy_similarity", 1.0) or 1.0 for ev in fuzzy_evidence)
+        fuzzy_penalty = int(-10 - 15 * (1.0 - min(max(worst_similarity, 0.85), 1.0)) / 0.15)
+        score += fuzzy_penalty
+    elif any(ev.verification_method == "sentence" for ev in evidence):
         score += penalties["fuzzy_verified"]
 
     if obligation.contradiction_flag:
@@ -152,6 +157,9 @@ def _score_obligation(
 
     if _implies_deadline(obligation.obligation_text) and not (obligation.due_date or has_due_rule):
         score += penalties["missing_deadline"]
+
+    if obligation.obligation_type == ObligationType.payment and not _MONETARY_RE.search(obligation.obligation_text or ""):
+        score += penalties.get("payment_no_amount", -10)
 
     obligation.system_confidence = _clamp_score(int(score))
     obligation.status = ReviewStatus.needs_review if obligation.system_confidence >= 50 else ReviewStatus.rejected
@@ -188,7 +196,12 @@ def _score_risk(
     if any(ev.source == TextSource.ocr for ev in evidence):
         score += penalties["ocr_source"]
 
-    if any(ev.verification_method == "fuzzy" for ev in evidence):
+    fuzzy_evidence = [ev for ev in evidence if ev.verification_method == "fuzzy"]
+    if fuzzy_evidence:
+        worst_similarity = min(getattr(ev, "fuzzy_similarity", 1.0) or 1.0 for ev in fuzzy_evidence)
+        fuzzy_penalty = int(-10 - 15 * (1.0 - min(max(worst_similarity, 0.85), 1.0)) / 0.15)
+        score += fuzzy_penalty
+    elif any(ev.verification_method == "sentence" for ev in evidence):
         score += penalties["fuzzy_verified"]
 
     if risk.contradiction_flag:
