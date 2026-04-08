@@ -464,3 +464,83 @@ def test_extract_risks_honors_chunk_selection_limit(monkeypatch):
     extract_task.extract_risks(document.id)
 
     assert len(db.risks) == 1
+
+
+def test_extract_obligations_deduplicates_overlapping_quotes_and_keeps_richer_parse(monkeypatch):
+    document = _make_document()
+    chunks = [
+        _make_chunk(document.id, 1, "Chunk one."),
+        _make_chunk(document.id, 1, "Chunk two overlap."),
+    ]
+    contractor = Entity(
+        id=uuid.uuid4(),
+        canonical_name="Contractor",
+        entity_type=EntityType.party,
+        aliases=[],
+    )
+    db = FakeSession(document=document, chunks=chunks, entities=[contractor])
+
+    def _fake_llm(*, model: str, prompt: str, stage: str):
+        if "Chunk one" in prompt:
+            return [
+                {
+                    "quote": "Contractor shall pay the lender by 2026-06-15.",
+                    "obligation_type": "payment",
+                    "modality": "shall",
+                    "due_date": None,
+                    "due_rule": None,
+                    "severity": "medium",
+                    "responsible_party": None,
+                }
+            ]
+        return [
+            {
+                "quote": "The Contractor shall pay the lender by 2026-06-15.",
+                "obligation_type": "payment",
+                "modality": "shall",
+                "due_date": "2026-06-15",
+                "due_rule": None,
+                "severity": "high",
+                "responsible_party": "Contractor",
+            }
+        ]
+
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    extract_task.extract_obligations(document.id)
+
+    assert len(db.obligations) == 1
+    obligation = db.obligations[0]
+    assert obligation.obligation_type == ObligationType.payment
+    assert obligation.due_kind == DueKind.absolute
+    assert str(obligation.due_date) == "2026-06-15"
+    assert obligation.responsible_entity_id == contractor.id
+
+
+def test_extract_risks_deduplicates_overlapping_quotes_and_keeps_best_parse(monkeypatch):
+    document = _make_document()
+    chunks = [
+        _make_chunk(document.id, 1, "Chunk alpha."),
+        _make_chunk(document.id, 1, "Chunk beta overlap."),
+    ]
+    db = FakeSession(document=document, chunks=chunks)
+
+    def _fake_llm(*, model: str, prompt: str, stage: str):
+        if "Chunk alpha" in prompt:
+            return [{"quote": "Borrower default may trigger foreclosure.", "risk_type": "unknown_risk", "severity": "low"}]
+        return [{"quote": "Borrower default may trigger foreclosure. ", "risk_type": "contractual", "severity": "high"}]
+
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    extract_task.extract_risks(document.id)
+
+    assert len(db.risks) == 1
+    risk = db.risks[0]
+    assert risk.risk_type == RiskType.contractual
+    assert risk.severity == Severity.high
