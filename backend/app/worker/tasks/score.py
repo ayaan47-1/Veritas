@@ -150,7 +150,7 @@ def _score_obligation(
         fuzzy_penalty = int(-10 - 15 * (1.0 - min(max(worst_similarity, 0.85), 1.0)) / 0.15)
         score += fuzzy_penalty
     elif any(ev.verification_method == "sentence" for ev in evidence):
-        score += penalties["fuzzy_verified"]
+        score += penalties.get("sentence_verified", penalties["fuzzy_verified"])
 
     if obligation.contradiction_flag:
         score += penalties["contradiction"]
@@ -202,7 +202,7 @@ def _score_risk(
         fuzzy_penalty = int(-10 - 15 * (1.0 - min(max(worst_similarity, 0.85), 1.0)) / 0.15)
         score += fuzzy_penalty
     elif any(ev.verification_method == "sentence" for ev in evidence):
-        score += penalties["fuzzy_verified"]
+        score += penalties.get("sentence_verified", penalties["fuzzy_verified"])
 
     if risk.contradiction_flag:
         score += penalties["contradiction"]

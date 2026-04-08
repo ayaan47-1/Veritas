@@ -32,6 +32,7 @@ from ...models import (
     RiskType,
     Severity,
 )
+from ...services.normalization import normalize_text
 from ._helpers import update_parse_status
 
 logger = logging.getLogger(__name__)
@@ -179,34 +180,89 @@ def _get_or_create_prompt_version(db: Session, prompt_name: str, uploaded_by: uu
 
 
 _OBLIGATION_SCHEMA = (
-    'Extract every obligation (duty, requirement, or commitment) from the chunk. '
-    'For each obligation return a JSON object with these exact fields:\n'
+    "You are an expert contract analyst. Extract every obligation (duty, requirement, "
+    "or commitment) from the text below.\n\n"
+    "SEVERITY DEFINITIONS (use these exactly):\n"
+    "- critical: financial penalty clause, liquidated damages, indemnification, "
+    "termination rights, bond/insurance requirements with termination consequences\n"
+    "- high: mandatory compliance with statute/regulation, hard deadlines with "
+    "consequences, OSHA/safety requirements\n"
+    "- medium: standard contractual duty (shall/must) without direct penalty language, "
+    "payment terms, submission requirements\n"
+    "- low: procedural or administrative duties, notice requirements, record-keeping, "
+    "formatting requirements\n\n"
+    "OBLIGATION TYPES:\n"
+    "- payment: monetary obligations, invoicing, retention, payment schedules\n"
+    "- submission: deliverables, submittals, reports, documents to be provided\n"
+    "- notification: notice requirements, written notice, communication obligations\n"
+    "- compliance: regulatory compliance, standards adherence, code compliance\n"
+    "- inspection: site visits, quality checks, testing, audits\n"
+    "- other: obligations not fitting the above categories\n\n"
+    "INSTRUCTIONS:\n"
+    "1. Extract EVERY obligation — err on the side of inclusion.\n"
+    "2. Quote the EXACT wording from the text (verbatim, not paraphrased). "
+    "Each quote must be 1-3 complete sentences copied directly from the text.\n"
+    "3. Assign severity using the definitions above. Be decisive.\n"
+    "4. Do NOT extract preamble, definitions, or recitals that do not impose a duty.\n"
+    "5. Do NOT paraphrase or summarize — copy the exact words.\n\n"
+    "For each obligation return a JSON object with these exact fields:\n"
     '  "quote": verbatim sentence(s) from the text that state the obligation (required),\n'
-    '  "obligation_type": one of payment|delivery|reporting|compliance|maintenance|notification|other,\n'
+    '  "obligation_type": one of payment|submission|notification|compliance|inspection|other,\n'
     '  "modality": one of must|shall|will|should|may|unknown,\n'
     '  "severity": one of low|medium|high|critical,\n'
     '  "due_date": ISO date string or null,\n'
     '  "due_rule": relative deadline description or null,\n'
     '  "responsible_party": name of the obligor or null.\n'
-    'Return [] if no obligations found. Return strict JSON array only.'
+    "Return a JSON array only. Return [] if no obligations found."
 )
 
 _RISK_SCHEMA = (
-    'Extract every risk, liability, or penalty clause from the chunk. '
-    'For each risk return a JSON object with these exact fields:\n'
+    "You are an expert contract analyst. Extract every risk, liability, or penalty "
+    "clause from the text below.\n\n"
+    "SEVERITY DEFINITIONS (use these exactly):\n"
+    "- critical: financial penalty clause, liquidated damages, indemnification, "
+    "termination rights, bond forfeiture, personal liability exposure\n"
+    "- high: breach of contract consequences, acceleration clauses, foreclosure "
+    "triggers, safety violation consequences\n"
+    "- medium: standard risk allocation clauses, insurance requirements, warranty "
+    "limitations, schedule delay provisions\n"
+    "- low: procedural non-compliance risks, administrative penalties, minor "
+    "reporting failures\n\n"
+    "RISK TYPES:\n"
+    "- financial: monetary penalties, damages, cost overruns, payment disputes\n"
+    "- schedule: delays, missed milestones, time-at-large claims\n"
+    "- quality: defects, rework, warranty claims, non-conformance\n"
+    "- safety: OSHA violations, injury liability, hazardous materials\n"
+    "- compliance: regulatory violations, permit failures, code non-compliance\n"
+    "- contractual: breach, termination, default, indemnification\n"
+    "- unknown_risk: risks not fitting the above categories\n\n"
+    "INSTRUCTIONS:\n"
+    "1. Extract EVERY risk — err on the side of inclusion.\n"
+    "2. Quote the EXACT wording from the text (verbatim, not paraphrased). "
+    "Each quote must be 1-3 complete sentences copied directly from the text.\n"
+    "3. Assign severity using the definitions above. Be decisive.\n"
+    "4. Do NOT extract general statements that merely define terms without imposing risk.\n"
+    "5. Do NOT paraphrase or summarize — copy the exact words.\n\n"
+    "For each risk return a JSON object with these exact fields:\n"
     '  "quote": verbatim sentence(s) from the text describing the risk (required),\n'
     '  "risk_type": one of financial|schedule|quality|safety|compliance|contractual|unknown_risk,\n'
     '  "severity": one of low|medium|high|critical.\n'
-    'Return [] if no risks found. Return strict JSON array only.'
+    "Return a JSON array only. Return [] if no risks found."
 )
 
 _ENTITY_SCHEMA = (
-    'Extract every named entity (person, company, organization, location) from the chunk. '
-    'For each entity return a JSON object with these exact fields:\n'
+    "You are an expert contract analyst. Extract every named entity (person, company, "
+    "organization, location) from the text below.\n\n"
+    "INSTRUCTIONS:\n"
+    "1. Extract EVERY named entity — err on the side of inclusion.\n"
+    "2. Use the EXACT name or value as it appears in the text.\n"
+    "3. Do NOT extract generic role references (e.g. 'the contractor') unless "
+    "they are defined as a specific named party.\n\n"
+    "For each entity return a JSON object with these exact fields:\n"
     '  "entity_type": one of person|organization|location|agreement_date|other,\n'
     '  "entity_value": the exact name or value as it appears in the text,\n'
     '  "location": brief description of where in the text (e.g. "Section 1").\n'
-    'Return [] if no entities found. Return strict JSON array only.'
+    "Return a JSON array only. Return [] if no entities found."
 )
 
 _STAGE_SCHEMAS = {
@@ -240,6 +296,105 @@ def _jaccard(a: set[str], b: set[str]) -> float:
     if union == 0:
         return 0.0
     return len(a & b) / union
+
+
+_EXTRACTION_DEDUP_MIN_CHARS = 40
+_EXTRACTION_DEDUP_CONTAINMENT_RATIO = 0.8
+_EXTRACTION_DEDUP_JACCARD_THRESHOLD = 0.92
+_EXTRACTION_DEDUP_SEQUENCE_THRESHOLD = 0.9
+
+
+def _normalize_extraction_quote(text: str) -> str:
+    return normalize_text(text or "").lower()
+
+
+def _is_duplicate_extraction_quote(a: str, b: str) -> bool:
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    if (
+        len(shorter) >= _EXTRACTION_DEDUP_MIN_CHARS
+        and len(longer) > 0
+        and (len(shorter) / len(longer)) >= _EXTRACTION_DEDUP_CONTAINMENT_RATIO
+        and shorter in longer
+    ):
+        return True
+
+    if SequenceMatcher(None, a, b).ratio() >= _EXTRACTION_DEDUP_SEQUENCE_THRESHOLD:
+        return True
+
+    return _jaccard(_token_set(a), _token_set(b)) >= _EXTRACTION_DEDUP_JACCARD_THRESHOLD
+
+
+def _has_metadata_conflict(a: dict[str, object], b: dict[str, object]) -> bool:
+    """Guard against merging candidates with materially different metadata."""
+    if a.get("due_date") and b.get("due_date") and a["due_date"] != b["due_date"]:
+        return True
+    if a.get("responsible_entity_id") and b.get("responsible_entity_id") and a["responsible_entity_id"] != b["responsible_entity_id"]:
+        return True
+    return False
+
+
+def _obligation_candidate_score(candidate: dict[str, object]) -> int:
+    score = 0
+    if candidate.get("due_kind") != DueKind.none:
+        score += 2
+    if candidate.get("due_date") is not None:
+        score += 2
+    if candidate.get("due_rule"):
+        score += 1
+    if candidate.get("responsible_entity_id") is not None:
+        score += 1
+    modality = candidate.get("modality")
+    if modality in {Modality.must, Modality.shall, Modality.required}:
+        score += 1
+    return score
+
+
+def _risk_candidate_score(candidate: dict[str, object]) -> int:
+    score = 0
+    if candidate.get("risk_type") != RiskType.unknown_risk:
+        score += 1
+    if candidate.get("severity") in {Severity.high, Severity.critical}:
+        score += 1
+    return score
+
+
+def _dedupe_candidates(
+    candidates: list[dict[str, object]],
+    *,
+    text_key: str,
+    score_fn,
+) -> tuple[list[dict[str, object]], int]:
+    unique_candidates: list[dict[str, object]] = []
+    unique_quotes: list[str] = []
+    removed = 0
+
+    for candidate in candidates:
+        quote = _normalize_extraction_quote(str(candidate.get(text_key, "")))
+        if not quote:
+            continue
+
+        duplicate_idx = -1
+        for idx, existing_quote in enumerate(unique_quotes):
+            if _is_duplicate_extraction_quote(quote, existing_quote) and not _has_metadata_conflict(candidate, unique_candidates[idx]):
+                duplicate_idx = idx
+                break
+
+        if duplicate_idx < 0:
+            unique_candidates.append(candidate)
+            unique_quotes.append(quote)
+            continue
+
+        removed += 1
+        if score_fn(candidate) > score_fn(unique_candidates[duplicate_idx]):
+            unique_candidates[duplicate_idx] = candidate
+            unique_quotes[duplicate_idx] = quote
+
+    return unique_candidates, removed
 
 
 def _relevance_score(stage_name: str, text: str, doc_type: DocumentType) -> float:
@@ -478,7 +633,7 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
     )
     aliases = _get_obligation_aliases(document.doc_type)
 
-    success_count = 0
+    parsed_candidates: list[dict[str, object]] = []
     for item in outputs:
         chunk = next((c for c in chunks if str(c.id) == item["chunk_id"]), None)
         if not chunk:
@@ -506,28 +661,49 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
             due_kind, due_date, due_rule = _parse_due_fields(entry.get("due_date"), entry.get("due_rule"))
             responsible_entity_id = _resolve_party_entity_id(entry.get("responsible_party"), entities)
 
-            record = Obligation(
-                id=uuid.uuid4(),
-                document_id=document.id,
-                obligation_type=obligation_type,
-                obligation_text=obligation_text,
-                modality=modality,
-                responsible_entity_id=responsible_entity_id,
-                due_kind=due_kind,
-                due_date=due_date,
-                due_rule=due_rule,
-                trigger_date=None,
-                severity=severity,
-                status=ReviewStatus.needs_review,
-                system_confidence=0,
-                reviewer_confidence=None,
-                has_external_reference=False,
-                contradiction_flag=False,
-                extraction_run_id=run.id,
+            parsed_candidates.append(
+                {
+                    "obligation_type": obligation_type,
+                    "obligation_text": obligation_text,
+                    "modality": modality,
+                    "responsible_entity_id": responsible_entity_id,
+                    "due_kind": due_kind,
+                    "due_date": due_date,
+                    "due_rule": due_rule,
+                    "severity": severity,
+                }
             )
-            db.add(record)
-            success_count += 1
-        db.commit()
+
+    deduped_candidates, removed_count = _dedupe_candidates(
+        parsed_candidates,
+        text_key="obligation_text",
+        score_fn=_obligation_candidate_score,
+    )
+
+    success_count = 0
+    for candidate in deduped_candidates:
+        record = Obligation(
+            id=uuid.uuid4(),
+            document_id=document.id,
+            obligation_type=candidate["obligation_type"],
+            obligation_text=str(candidate["obligation_text"]),
+            modality=candidate["modality"],
+            responsible_entity_id=candidate["responsible_entity_id"],
+            due_kind=candidate["due_kind"],
+            due_date=candidate["due_date"],
+            due_rule=candidate["due_rule"],
+            trigger_date=None,
+            severity=candidate["severity"],
+            status=ReviewStatus.needs_review,
+            system_confidence=0,
+            reviewer_confidence=None,
+            has_external_reference=False,
+            contradiction_flag=False,
+            extraction_run_id=run.id,
+        )
+        db.add(record)
+        success_count += 1
+    db.commit()
 
     _finish_run(db=db, run=run, model_used=model_used, outputs=outputs, errors=errors, success_count=success_count)
     return {
@@ -536,6 +712,9 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
         "selected_chunk_count": len(
             _select_chunks_for_stage(chunks, "obligation_extraction", llm_cfg, document.doc_type)
         ),
+        "raw_obligation_count": len(parsed_candidates),
+        "deduplicated_obligation_count": len(deduped_candidates),
+        "dedup_removed_count": removed_count,
         "obligation_count": success_count,
         "error_count": len(errors),
         "run_status": run.status.value,
@@ -561,7 +740,7 @@ def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm
         build_prompt=_build,
     )
 
-    success_count = 0
+    parsed_candidates: list[dict[str, object]] = []
     for item in outputs:
         chunk = next((c for c in chunks if str(c.id) == item["chunk_id"]), None)
         if not chunk:
@@ -582,28 +761,47 @@ def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm
             risk_type = _coerce_enum(entry.get("risk_type"), RiskType, RiskType.unknown_risk)
             severity = _coerce_enum(entry.get("severity"), Severity, Severity.medium)
 
-            record = Risk(
-                id=uuid.uuid4(),
-                document_id=document.id,
-                risk_type=risk_type,
-                risk_text=risk_text,
-                severity=severity,
-                status=ReviewStatus.needs_review,
-                system_confidence=0,
-                reviewer_confidence=None,
-                has_external_reference=False,
-                contradiction_flag=False,
-                extraction_run_id=run.id,
+            parsed_candidates.append(
+                {
+                    "risk_type": risk_type,
+                    "risk_text": risk_text,
+                    "severity": severity,
+                }
             )
-            db.add(record)
-            success_count += 1
-        db.commit()
+
+    deduped_candidates, removed_count = _dedupe_candidates(
+        parsed_candidates,
+        text_key="risk_text",
+        score_fn=_risk_candidate_score,
+    )
+
+    success_count = 0
+    for candidate in deduped_candidates:
+        record = Risk(
+            id=uuid.uuid4(),
+            document_id=document.id,
+            risk_type=candidate["risk_type"],
+            risk_text=str(candidate["risk_text"]),
+            severity=candidate["severity"],
+            status=ReviewStatus.needs_review,
+            system_confidence=0,
+            reviewer_confidence=None,
+            has_external_reference=False,
+            contradiction_flag=False,
+            extraction_run_id=run.id,
+        )
+        db.add(record)
+        success_count += 1
+    db.commit()
 
     _finish_run(db=db, run=run, model_used=model_used, outputs=outputs, errors=errors, success_count=success_count)
     return {
         "run_id": str(run.id),
         "model_used": model_used,
         "selected_chunk_count": len(_select_chunks_for_stage(chunks, "risk_extraction", llm_cfg, document.doc_type)),
+        "raw_risk_count": len(parsed_candidates),
+        "deduplicated_risk_count": len(deduped_candidates),
+        "dedup_removed_count": removed_count,
         "risk_count": success_count,
         "error_count": len(errors),
         "run_status": run.status.value,

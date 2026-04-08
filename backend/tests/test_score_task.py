@@ -529,3 +529,37 @@ def test_score_sentence_verified_gets_penalty(monkeypatch):
     assert ob_exact.system_confidence > ob_sentence.system_confidence, (
         "Exact match should score higher than sentence-split match"
     )
+
+
+# --- Golden regression tests (exact scores pinned for canonical scenarios) ---
+
+
+def test_golden_score_strong_obligation_exact_evidence(monkeypatch):
+    """Pin: strong obligation (shall, linked entity, due rule, aligned type) with exact PDF evidence."""
+    document = _make_document(DocumentType.invoice)
+    obligation = _make_obligation(document.id, due_date=None, due_rule="within 10 days")
+    evidence = _make_obligation_evidence(document.id, obligation.id, TextSource.pdf_text)
+    db = FakeSession(document=document, obligations=[obligation], obligation_evidence=[evidence])
+
+    monkeypatch.setattr(score_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(score_task, "update_parse_status", lambda *_a, **_k: None)
+
+    score_task.score_extractions(document.id)
+
+    assert obligation.system_confidence == 100
+
+
+def test_golden_score_risk_with_ocr_and_contradiction(monkeypatch):
+    """Pin: risk with OCR source + contradiction flag should be rejected."""
+    document = _make_document(DocumentType.contract)
+    risk = _make_risk(document.id, contradiction_flag=True)
+    evidence = _make_risk_evidence(document.id, risk.id, TextSource.ocr)
+    db = FakeSession(document=document, risks=[risk], risk_evidence=[evidence])
+
+    monkeypatch.setattr(score_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(score_task, "update_parse_status", lambda *_a, **_k: None)
+
+    score_task.score_extractions(document.id)
+
+    assert risk.system_confidence == 15
+    assert risk.status == ReviewStatus.rejected
