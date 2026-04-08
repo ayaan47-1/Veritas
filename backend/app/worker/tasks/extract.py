@@ -329,6 +329,15 @@ def _is_duplicate_extraction_quote(a: str, b: str) -> bool:
     return _jaccard(_token_set(a), _token_set(b)) >= _EXTRACTION_DEDUP_JACCARD_THRESHOLD
 
 
+def _has_metadata_conflict(a: dict[str, object], b: dict[str, object]) -> bool:
+    """Guard against merging candidates with materially different metadata."""
+    if a.get("due_date") and b.get("due_date") and a["due_date"] != b["due_date"]:
+        return True
+    if a.get("responsible_entity_id") and b.get("responsible_entity_id") and a["responsible_entity_id"] != b["responsible_entity_id"]:
+        return True
+    return False
+
+
 def _obligation_candidate_score(candidate: dict[str, object]) -> int:
     score = 0
     if candidate.get("due_kind") != DueKind.none:
@@ -371,7 +380,7 @@ def _dedupe_candidates(
 
         duplicate_idx = -1
         for idx, existing_quote in enumerate(unique_quotes):
-            if _is_duplicate_extraction_quote(quote, existing_quote):
+            if _is_duplicate_extraction_quote(quote, existing_quote) and not _has_metadata_conflict(candidate, unique_candidates[idx]):
                 duplicate_idx = idx
                 break
 
@@ -704,7 +713,8 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
             _select_chunks_for_stage(chunks, "obligation_extraction", llm_cfg, document.doc_type)
         ),
         "raw_obligation_count": len(parsed_candidates),
-        "deduped_obligation_count": removed_count,
+        "deduplicated_obligation_count": len(deduped_candidates),
+        "dedup_removed_count": removed_count,
         "obligation_count": success_count,
         "error_count": len(errors),
         "run_status": run.status.value,
@@ -790,7 +800,8 @@ def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm
         "model_used": model_used,
         "selected_chunk_count": len(_select_chunks_for_stage(chunks, "risk_extraction", llm_cfg, document.doc_type)),
         "raw_risk_count": len(parsed_candidates),
-        "deduped_risk_count": removed_count,
+        "deduplicated_risk_count": len(deduped_candidates),
+        "dedup_removed_count": removed_count,
         "risk_count": success_count,
         "error_count": len(errors),
         "run_status": run.status.value,

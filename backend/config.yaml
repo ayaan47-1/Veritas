@@ -34,7 +34,7 @@ llm:
   retry_backoff_base: 2
   chunk_selection:
     # 0 means extract from all chunks. Set >0 to cap per extraction stage.
-    max_chunks_per_stage: 0
+    max_chunks_per_stage: 30
     use_mmr: true
     mmr_lambda: 0.7
 
