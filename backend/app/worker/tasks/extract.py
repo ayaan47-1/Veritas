@@ -179,34 +179,89 @@ def _get_or_create_prompt_version(db: Session, prompt_name: str, uploaded_by: uu
 
 
 _OBLIGATION_SCHEMA = (
-    'Extract every obligation (duty, requirement, or commitment) from the chunk. '
-    'For each obligation return a JSON object with these exact fields:\n'
+    "You are an expert contract analyst. Extract every obligation (duty, requirement, "
+    "or commitment) from the text below.\n\n"
+    "SEVERITY DEFINITIONS (use these exactly):\n"
+    "- critical: financial penalty clause, liquidated damages, indemnification, "
+    "termination rights, bond/insurance requirements with termination consequences\n"
+    "- high: mandatory compliance with statute/regulation, hard deadlines with "
+    "consequences, OSHA/safety requirements\n"
+    "- medium: standard contractual duty (shall/must) without direct penalty language, "
+    "payment terms, submission requirements\n"
+    "- low: procedural or administrative duties, notice requirements, record-keeping, "
+    "formatting requirements\n\n"
+    "OBLIGATION TYPES:\n"
+    "- payment: monetary obligations, invoicing, retention, payment schedules\n"
+    "- submission: deliverables, submittals, reports, documents to be provided\n"
+    "- notification: notice requirements, written notice, communication obligations\n"
+    "- compliance: regulatory compliance, standards adherence, code compliance\n"
+    "- inspection: site visits, quality checks, testing, audits\n"
+    "- other: obligations not fitting the above categories\n\n"
+    "INSTRUCTIONS:\n"
+    "1. Extract EVERY obligation — err on the side of inclusion.\n"
+    "2. Quote the EXACT wording from the text (verbatim, not paraphrased). "
+    "Each quote must be 1-3 complete sentences copied directly from the text.\n"
+    "3. Assign severity using the definitions above. Be decisive.\n"
+    "4. Do NOT extract preamble, definitions, or recitals that do not impose a duty.\n"
+    "5. Do NOT paraphrase or summarize — copy the exact words.\n\n"
+    "For each obligation return a JSON object with these exact fields:\n"
     '  "quote": verbatim sentence(s) from the text that state the obligation (required),\n'
-    '  "obligation_type": one of payment|delivery|reporting|compliance|maintenance|notification|other,\n'
+    '  "obligation_type": one of payment|submission|notification|compliance|inspection|other,\n'
     '  "modality": one of must|shall|will|should|may|unknown,\n'
     '  "severity": one of low|medium|high|critical,\n'
     '  "due_date": ISO date string or null,\n'
     '  "due_rule": relative deadline description or null,\n'
     '  "responsible_party": name of the obligor or null.\n'
-    'Return [] if no obligations found. Return strict JSON array only.'
+    "Return a JSON array only. Return [] if no obligations found."
 )
 
 _RISK_SCHEMA = (
-    'Extract every risk, liability, or penalty clause from the chunk. '
-    'For each risk return a JSON object with these exact fields:\n'
+    "You are an expert contract analyst. Extract every risk, liability, or penalty "
+    "clause from the text below.\n\n"
+    "SEVERITY DEFINITIONS (use these exactly):\n"
+    "- critical: financial penalty clause, liquidated damages, indemnification, "
+    "termination rights, bond forfeiture, personal liability exposure\n"
+    "- high: breach of contract consequences, acceleration clauses, foreclosure "
+    "triggers, safety violation consequences\n"
+    "- medium: standard risk allocation clauses, insurance requirements, warranty "
+    "limitations, schedule delay provisions\n"
+    "- low: procedural non-compliance risks, administrative penalties, minor "
+    "reporting failures\n\n"
+    "RISK TYPES:\n"
+    "- financial: monetary penalties, damages, cost overruns, payment disputes\n"
+    "- schedule: delays, missed milestones, time-at-large claims\n"
+    "- quality: defects, rework, warranty claims, non-conformance\n"
+    "- safety: OSHA violations, injury liability, hazardous materials\n"
+    "- compliance: regulatory violations, permit failures, code non-compliance\n"
+    "- contractual: breach, termination, default, indemnification\n"
+    "- unknown_risk: risks not fitting the above categories\n\n"
+    "INSTRUCTIONS:\n"
+    "1. Extract EVERY risk — err on the side of inclusion.\n"
+    "2. Quote the EXACT wording from the text (verbatim, not paraphrased). "
+    "Each quote must be 1-3 complete sentences copied directly from the text.\n"
+    "3. Assign severity using the definitions above. Be decisive.\n"
+    "4. Do NOT extract general statements that merely define terms without imposing risk.\n"
+    "5. Do NOT paraphrase or summarize — copy the exact words.\n\n"
+    "For each risk return a JSON object with these exact fields:\n"
     '  "quote": verbatim sentence(s) from the text describing the risk (required),\n'
     '  "risk_type": one of financial|schedule|quality|safety|compliance|contractual|unknown_risk,\n'
     '  "severity": one of low|medium|high|critical.\n'
-    'Return [] if no risks found. Return strict JSON array only.'
+    "Return a JSON array only. Return [] if no risks found."
 )
 
 _ENTITY_SCHEMA = (
-    'Extract every named entity (person, company, organization, location) from the chunk. '
-    'For each entity return a JSON object with these exact fields:\n'
+    "You are an expert contract analyst. Extract every named entity (person, company, "
+    "organization, location) from the text below.\n\n"
+    "INSTRUCTIONS:\n"
+    "1. Extract EVERY named entity — err on the side of inclusion.\n"
+    "2. Use the EXACT name or value as it appears in the text.\n"
+    "3. Do NOT extract generic role references (e.g. 'the contractor') unless "
+    "they are defined as a specific named party.\n\n"
+    "For each entity return a JSON object with these exact fields:\n"
     '  "entity_type": one of person|organization|location|agreement_date|other,\n'
     '  "entity_value": the exact name or value as it appears in the text,\n'
     '  "location": brief description of where in the text (e.g. "Section 1").\n'
-    'Return [] if no entities found. Return strict JSON array only.'
+    "Return a JSON array only. Return [] if no entities found."
 )
 
 _STAGE_SCHEMAS = {
