@@ -13,8 +13,8 @@ Metrics reported:
   Severity adjacent agreement  — matched pairs within one tier of each other
   Spearman rank correlation     — on severity tiers of matched pairs
 
-Match algorithm: Jaccard similarity on lowercased word tokens between quotes.
-Items match when similarity >= threshold (default 0.6).
+Match algorithm: ROUGE-L (longest common subsequence F1) on lowercased word tokens.
+Items match when ROUGE-L F1 >= threshold (default 0.5).
 """
 
 from __future__ import annotations
@@ -37,15 +37,38 @@ _SEVERITY_RANK: dict[str, int] = {"low": 1, "medium": 2, "high": 3, "critical": 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _tokens(text: str) -> set[str]:
-    return set(re.findall(r"[a-z0-9]+", (text or "").lower()))
+def _word_tokens(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", (text or "").lower())
 
 
-def _jaccard(a: set[str], b: set[str]) -> float:
+def _lcs_length(a: list[str], b: list[str]) -> int:
+    """Length of the longest common subsequence of two token lists."""
+    m, n = len(a), len(b)
+    if m == 0 or n == 0:
+        return 0
+    # Space-optimised DP: two rows
+    prev = [0] * (n + 1)
+    curr = [0] * (n + 1)
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            if a[i - 1] == b[j - 1]:
+                curr[j] = prev[j - 1] + 1
+            else:
+                curr[j] = max(prev[j], curr[j - 1])
+        prev, curr = curr, [0] * (n + 1)
+    return prev[n]
+
+
+def _rouge_l(a: list[str], b: list[str]) -> float:
+    """ROUGE-L F1 score between two token lists."""
     if not a or not b:
         return 0.0
-    union = len(a | b)
-    return len(a & b) / union if union else 0.0
+    lcs = _lcs_length(a, b)
+    precision = lcs / len(b)
+    recall = lcs / len(a)
+    if precision + recall == 0:
+        return 0.0
+    return 2 * precision * recall / (precision + recall)
 
 
 def _spearman(xs: list[float], ys: list[float]) -> float | None:
@@ -76,8 +99,8 @@ def _match_items(
     threshold: float,
 ) -> tuple[list[tuple[dict, dict]], list[dict], list[dict]]:
     """Return (matched_pairs, false_negatives, false_positives)."""
-    gt_tokens = [_tokens(item.get(gt_quote_key, "")) for item in gt_items]
-    pl_tokens = [_tokens(item.get(pl_quote_key, "")) for item in pipeline_items]
+    gt_tokens = [_word_tokens(item.get(gt_quote_key, "")) for item in gt_items]
+    pl_tokens = [_word_tokens(item.get(pl_quote_key, "")) for item in pipeline_items]
 
     matched_pl: set[int] = set()
     matched_gt: set[int] = set()
@@ -89,7 +112,7 @@ def _match_items(
         for pi in range(len(pipeline_items)):
             if pi in matched_pl:
                 continue
-            score = _jaccard(gt_tokens[gi], pl_tokens[pi])
+            score = _rouge_l(gt_tokens[gi], pl_tokens[pi])
             if score > best_score:
                 best_score = score
                 best_pi = pi
@@ -272,7 +295,7 @@ def _render_text(doc_id: str, gt_meta: dict, ob: dict, ri: dict) -> str:
 def evaluate(
     document_id: str,
     gt_dir: Path,
-    threshold: float = 0.6,
+    threshold: float = 0.5,
     output_format: str = "text",
 ) -> dict[str, Any]:
     doc_id = uuid.UUID(document_id)
@@ -334,7 +357,7 @@ def main() -> None:
         default=str(Path(__file__).resolve().parents[1] / "data" / "benchmarks"),
         help="Directory containing ground truth JSON files",
     )
-    parser.add_argument("--threshold", type=float, default=0.6, help="Jaccard match threshold (default 0.6)")
+    parser.add_argument("--threshold", type=float, default=0.5, help="ROUGE-L F1 match threshold (default 0.5)")
     parser.add_argument("--output", choices=["text", "json"], default="text", help="Output format")
     args = parser.parse_args()
 
