@@ -285,23 +285,43 @@ def _build_extraction_prompt(stage_name: str, chunk: Chunk, document: Document) 
     )
 
 
-def _token_set(text: str) -> set[str]:
-    return set(re.findall(r"[a-z0-9]+", text.lower()))
+def _word_tokens(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
 
 
-def _jaccard(a: set[str], b: set[str]) -> float:
+def _lcs_length(a: list[str], b: list[str]) -> int:
+    """Length of the longest common subsequence of two token lists."""
+    m, n = len(a), len(b)
+    if m == 0 or n == 0:
+        return 0
+    prev = [0] * (n + 1)
+    curr = [0] * (n + 1)
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            if a[i - 1] == b[j - 1]:
+                curr[j] = prev[j - 1] + 1
+            else:
+                curr[j] = max(prev[j], curr[j - 1])
+        prev, curr = curr, [0] * (n + 1)
+    return prev[n]
+
+
+def _rouge_l(a: list[str], b: list[str]) -> float:
+    """ROUGE-L F1 score between two token lists."""
     if not a or not b:
         return 0.0
-    union = len(a | b)
-    if union == 0:
+    lcs = _lcs_length(a, b)
+    precision = lcs / len(b)
+    recall = lcs / len(a)
+    if precision + recall == 0:
         return 0.0
-    return len(a & b) / union
+    return 2 * precision * recall / (precision + recall)
 
 
 _EXTRACTION_DEDUP_MIN_CHARS = 40
-_EXTRACTION_DEDUP_CONTAINMENT_RATIO = 0.8
-_EXTRACTION_DEDUP_JACCARD_THRESHOLD = 0.92
-_EXTRACTION_DEDUP_SEQUENCE_THRESHOLD = 0.9
+_EXTRACTION_DEDUP_CONTAINMENT_RATIO = 0.5
+_EXTRACTION_DEDUP_ROUGE_L_THRESHOLD = 0.6
+_EXTRACTION_DEDUP_SEQUENCE_THRESHOLD = 0.8
 
 
 def _normalize_extraction_quote(text: str) -> str:
@@ -326,7 +346,7 @@ def _is_duplicate_extraction_quote(a: str, b: str) -> bool:
     if SequenceMatcher(None, a, b).ratio() >= _EXTRACTION_DEDUP_SEQUENCE_THRESHOLD:
         return True
 
-    return _jaccard(_token_set(a), _token_set(b)) >= _EXTRACTION_DEDUP_JACCARD_THRESHOLD
+    return _rouge_l(_word_tokens(a), _word_tokens(b)) >= _EXTRACTION_DEDUP_ROUGE_L_THRESHOLD
 
 
 def _has_metadata_conflict(a: dict[str, object], b: dict[str, object]) -> bool:
@@ -395,6 +415,18 @@ def _dedupe_candidates(
             unique_quotes[duplicate_idx] = quote
 
     return unique_candidates, removed
+
+
+def _token_set(text: str) -> set[str]:
+    """Bag-of-words tokens for MMR chunk similarity (order-independent)."""
+    return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    union = len(a | b)
+    return len(a & b) / union if union else 0.0
 
 
 def _relevance_score(stage_name: str, text: str, doc_type: DocumentType) -> float:
