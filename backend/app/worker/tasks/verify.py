@@ -154,14 +154,19 @@ def _verify_obligations(
     document: Document,
     pages: list[DocumentPage],
     obligations: list[Obligation],
-) -> dict[uuid.UUID, list[ObligationEvidence]]:
+) -> tuple[dict[uuid.UUID, list[ObligationEvidence]], dict[str, int]]:
     seen_keys: set[tuple[str, uuid.UUID, int, int, int]] = set()
     evidence_by_obligation: dict[uuid.UUID, list[ObligationEvidence]] = {}
     fuzzy_threshold, _ = _verification_config()
 
+    stats = {"total": 0, "exact": 0, "sentence": 0, "fuzzy": 0, "rejected_quote_mismatch": 0, "deduped": 0, "external_ref": 0}
+
     for obligation in obligations:
+        stats["total"] += 1
         quote = obligation.obligation_text or ""
         obligation.has_external_reference = _has_external_reference(quote)
+        if obligation.has_external_reference:
+            stats["external_ref"] += 1
 
         located = _find_quote_in_pages(quote, pages)
         verification_method = "exact"
@@ -176,6 +181,11 @@ def _verify_obligations(
         if not located:
             fuzzy_result = _fuzzy_find_quote_in_pages(quote, pages, fuzzy_threshold)
             if not fuzzy_result:
+                stats["rejected_quote_mismatch"] += 1
+                logger.info(
+                    "VERIFY REJECT obligation %s — quote not found in any page (first 120 chars: %s)",
+                    obligation.id, quote[:120],
+                )
                 obligation.status = ReviewStatus.rejected
                 db.add(obligation)
                 continue
@@ -192,8 +202,15 @@ def _verify_obligations(
 
         dedup_key = (_sha256(normalized_quote), document.id, page.page_number, start, end)
         if dedup_key in seen_keys:
+            stats["deduped"] += 1
+            logger.info(
+                "VERIFY DEDUP obligation %s — evidence already exists for same span on page %s",
+                obligation.id, page.page_number,
+            )
             continue
         seen_keys.add(dedup_key)
+
+        stats[verification_method] += 1
 
         evidence = ObligationEvidence(
             id=uuid.uuid4(),
@@ -219,17 +236,27 @@ def _verify_obligations(
         evidence_by_obligation.setdefault(obligation.id, []).append(evidence)
 
     db.commit()
-    return evidence_by_obligation
+    logger.info(
+        "VERIFY OBLIGATIONS SUMMARY — total=%d exact=%d sentence=%d fuzzy=%d rejected_quote_mismatch=%d deduped=%d external_ref=%d",
+        stats["total"], stats["exact"], stats["sentence"], stats["fuzzy"],
+        stats["rejected_quote_mismatch"], stats["deduped"], stats["external_ref"],
+    )
+    return evidence_by_obligation, stats
 
 
-def _verify_risks(db: Session, document: Document, pages: list[DocumentPage], risks: list[Risk]) -> dict[uuid.UUID, list[RiskEvidence]]:
+def _verify_risks(db: Session, document: Document, pages: list[DocumentPage], risks: list[Risk]) -> tuple[dict[uuid.UUID, list[RiskEvidence]], dict[str, int]]:
     seen_keys: set[tuple[str, uuid.UUID, int, int, int]] = set()
     evidence_by_risk: dict[uuid.UUID, list[RiskEvidence]] = {}
     fuzzy_threshold, _ = _verification_config()
 
+    stats = {"total": 0, "exact": 0, "sentence": 0, "fuzzy": 0, "rejected_quote_mismatch": 0, "deduped": 0, "external_ref": 0}
+
     for risk in risks:
+        stats["total"] += 1
         quote = risk.risk_text or ""
         risk.has_external_reference = _has_external_reference(quote)
+        if risk.has_external_reference:
+            stats["external_ref"] += 1
 
         located = _find_quote_in_pages(quote, pages)
         verification_method = "exact"
@@ -244,6 +271,11 @@ def _verify_risks(db: Session, document: Document, pages: list[DocumentPage], ri
         if not located:
             fuzzy_result = _fuzzy_find_quote_in_pages(quote, pages, fuzzy_threshold)
             if not fuzzy_result:
+                stats["rejected_quote_mismatch"] += 1
+                logger.info(
+                    "VERIFY REJECT risk %s — quote not found in any page (first 120 chars: %s)",
+                    risk.id, quote[:120],
+                )
                 risk.status = ReviewStatus.rejected
                 db.add(risk)
                 continue
@@ -260,8 +292,15 @@ def _verify_risks(db: Session, document: Document, pages: list[DocumentPage], ri
 
         dedup_key = (_sha256(normalized_quote), document.id, page.page_number, start, end)
         if dedup_key in seen_keys:
+            stats["deduped"] += 1
+            logger.info(
+                "VERIFY DEDUP risk %s — evidence already exists for same span on page %s",
+                risk.id, page.page_number,
+            )
             continue
         seen_keys.add(dedup_key)
+
+        stats[verification_method] += 1
 
         evidence = RiskEvidence(
             id=uuid.uuid4(),
@@ -287,7 +326,12 @@ def _verify_risks(db: Session, document: Document, pages: list[DocumentPage], ri
         evidence_by_risk.setdefault(risk.id, []).append(evidence)
 
     db.commit()
-    return evidence_by_risk
+    logger.info(
+        "VERIFY RISKS SUMMARY — total=%d exact=%d sentence=%d fuzzy=%d rejected_quote_mismatch=%d deduped=%d external_ref=%d",
+        stats["total"], stats["exact"], stats["sentence"], stats["fuzzy"],
+        stats["rejected_quote_mismatch"], stats["deduped"], stats["external_ref"],
+    )
+    return evidence_by_risk, stats
 
 
 def _payment_amounts(text: str) -> set[str]:
@@ -497,8 +541,8 @@ def verify_extractions(document_id: str) -> dict[str, object]:
             .all()
         )
 
-        evidence_by_obligation = _verify_obligations(db, document, pages, obligations)
-        evidence_by_risk = _verify_risks(db, document, pages, risks)
+        evidence_by_obligation, ob_verify_stats = _verify_obligations(db, document, pages, obligations)
+        evidence_by_risk, ri_verify_stats = _verify_risks(db, document, pages, risks)
         pre_contradiction_risk_count = db.query(Risk).filter(Risk.document_id == document.id).count()
         _detect_contradictions(db, document, obligations, evidence_by_obligation)
         post_contradiction_risk_count = db.query(Risk).filter(Risk.document_id == document.id).count()
@@ -512,6 +556,8 @@ def verify_extractions(document_id: str) -> dict[str, object]:
             "rejected_obligation_count": sum(1 for obligation in obligations if obligation.status == ReviewStatus.rejected),
             "rejected_risk_count": sum(1 for risk in risks if risk.status == ReviewStatus.rejected),
             "contradiction_risk_count": post_contradiction_risk_count - pre_contradiction_risk_count,
+            "obligation_verify_breakdown": ob_verify_stats,
+            "risk_verify_breakdown": ri_verify_stats,
         }
     finally:
         db.close()
