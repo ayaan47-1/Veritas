@@ -199,12 +199,16 @@ _OBLIGATION_SCHEMA = (
     "- inspection: site visits, quality checks, testing, audits\n"
     "- other: obligations not fitting the above categories\n\n"
     "INSTRUCTIONS:\n"
-    "1. Extract EVERY obligation — err on the side of inclusion.\n"
-    "2. Quote the EXACT wording from the text (verbatim, not paraphrased). "
+    "1. Extract only items that clearly impose a duty on a named or implied party.\n"
+    "2. Do NOT extract from summary sections, informational disclosures, "
+    "or sections that merely restate obligations found elsewhere in the document.\n"
+    "3. Do NOT extract general statements of law or rights — only extract specific "
+    "contractual obligations from THIS agreement.\n"
+    "4. Quote the EXACT wording from the text (verbatim, not paraphrased). "
     "Each quote must be 1-3 complete sentences copied directly from the text.\n"
-    "3. Assign severity using the definitions above. Be decisive.\n"
-    "4. Do NOT extract preamble, definitions, or recitals that do not impose a duty.\n"
-    "5. Do NOT paraphrase or summarize — copy the exact words.\n\n"
+    "5. Assign severity using the definitions above. Be decisive.\n"
+    "6. Do NOT extract preamble, definitions, or recitals that do not impose a duty.\n"
+    "7. Do NOT paraphrase or summarize — copy the exact words.\n\n"
     "For each obligation return a JSON object with these exact fields:\n"
     '  "quote": verbatim sentence(s) from the text that state the obligation (required),\n'
     '  "obligation_type": one of payment|submission|notification|compliance|inspection|other,\n'
@@ -237,12 +241,17 @@ _RISK_SCHEMA = (
     "- contractual: breach, termination, default, indemnification\n"
     "- unknown_risk: risks not fitting the above categories\n\n"
     "INSTRUCTIONS:\n"
-    "1. Extract EVERY risk — err on the side of inclusion.\n"
-    "2. Quote the EXACT wording from the text (verbatim, not paraphrased). "
+    "1. Extract only clauses that clearly expose a party to liability, penalty, "
+    "or financial loss under this specific agreement.\n"
+    "2. Do NOT extract from summary sections, informational disclosures, "
+    "or sections that merely restate risks found elsewhere in the document.\n"
+    "3. Do NOT extract general statements of law — only extract specific risk "
+    "clauses from THIS agreement.\n"
+    "4. Quote the EXACT wording from the text (verbatim, not paraphrased). "
     "Each quote must be 1-3 complete sentences copied directly from the text.\n"
-    "3. Assign severity using the definitions above. Be decisive.\n"
-    "4. Do NOT extract general statements that merely define terms without imposing risk.\n"
-    "5. Do NOT paraphrase or summarize — copy the exact words.\n\n"
+    "5. Assign severity using the definitions above. Be decisive.\n"
+    "6. Do NOT extract general statements that merely define terms without imposing risk.\n"
+    "7. Do NOT paraphrase or summarize — copy the exact words.\n\n"
     "For each risk return a JSON object with these exact fields:\n"
     '  "quote": verbatim sentence(s) from the text describing the risk (required),\n'
     '  "risk_type": one of financial|schedule|quality|safety|compliance|contractual|unknown_risk,\n'
@@ -486,6 +495,34 @@ def _select_chunks_for_stage(chunks: list[Chunk], stage_name: str, llm_cfg: dict
     return [chunk for chunk in chunks if chunk.id in selected_ids]
 
 
+def _group_chunks(chunks: list[Chunk], group_size: int) -> list[list[Chunk]]:
+    """Split chunks into groups of up to group_size."""
+    if group_size <= 1:
+        return [[c] for c in chunks]
+    return [chunks[i:i + group_size] for i in range(0, len(chunks), group_size)]
+
+
+def _build_grouped_extraction_prompt(stage_name: str, chunks: list[Chunk], document: Document) -> str:
+    schema = _STAGE_SCHEMAS.get(stage_name, "Return strict JSON array only.")
+    vocab_preamble = _get_vocab_preamble(stage_name, document.doc_type)
+    preamble = f"{vocab_preamble}\n\n" if vocab_preamble else ""
+    pages = [c.page_number for c in chunks if c.page_number is not None]
+    page_range = f"{min(pages)}–{max(pages)}" if pages else "unknown"
+    chunk_texts = "\n\n".join(
+        f"--- Page {c.page_number} ---\n{c.text}" for c in chunks
+    )
+    return (
+        f"Document type: {document.doc_type.value}\n"
+        f"Pages: {page_range}\n\n"
+        f"{preamble}"
+        "The text below comes from multiple sections of the same document. "
+        "Extract from ALL sections. Do NOT duplicate items that appear across "
+        "page boundaries or are restated in different sections.\n\n"
+        f"{schema}\n\n"
+        f"Chunk text:\n{chunk_texts}"
+    )
+
+
 def _run_chunk_calls(
     *,
     chunks: list[Chunk],
@@ -535,6 +572,101 @@ def _run_chunk_calls(
                     "error": str(last_error) if last_error else "unknown_error",
                 }
             )
+
+    return active_model, outputs, errors
+
+
+def _run_grouped_chunk_calls(
+    *,
+    chunks: list[Chunk],
+    stage_name: str,
+    doc_type: DocumentType,
+    llm_cfg: dict,
+    build_prompt,
+    build_group_prompt,
+):
+    """Run extraction with chunk grouping. Falls back to per-chunk on group failure."""
+    selection_cfg = llm_cfg.get("chunk_selection", {}) if isinstance(llm_cfg, dict) else {}
+    group_size = int(selection_cfg.get("chunks_per_group", 1) or 1)
+
+    if group_size <= 1:
+        return _run_chunk_calls(
+            chunks=chunks,
+            stage_name=stage_name,
+            doc_type=doc_type,
+            llm_cfg=llm_cfg,
+            build_prompt=build_prompt,
+        )
+
+    models = [llm_cfg.get("primary_model", "gpt-4o")] + list(llm_cfg.get("fallback_models", []))
+    max_retries = max(1, int(llm_cfg.get("max_retries", 3)))
+    backoff_base = max(1, int(llm_cfg.get("retry_backoff_base", 2)))
+
+    errors: list[dict] = []
+    outputs: list[dict] = []
+    active_model_idx = 0
+    active_model = models[0] if models else "gpt-4o"
+
+    ordered_chunks = _select_chunks_for_stage(chunks, stage_name, llm_cfg, doc_type)
+    groups = _group_chunks(ordered_chunks, group_size)
+
+    for group in groups:
+        group_done = False
+        last_error: Exception | None = None
+
+        while active_model_idx < len(models) and not group_done:
+            model = models[active_model_idx]
+            active_model = model
+            prompt = build_group_prompt(model, group)
+
+            for attempt in range(max_retries):
+                try:
+                    response = call_extract_llm(model=model, prompt=prompt, stage=stage_name)
+                    outputs.append({"chunk_id": str(group[0].id), "model": model, "response": response})
+                    group_done = True
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    if attempt < max_retries - 1:
+                        time.sleep(backoff_base ** (attempt + 1))
+
+            if not group_done:
+                active_model_idx += 1
+
+        if not group_done:
+            # Fall back to per-chunk calls for this group
+            active_model_idx = 0  # reset — failure may be prompt-length related
+            for chunk in group:
+                chunk_done = False
+                chunk_last_error: Exception | None = None
+
+                while active_model_idx < len(models) and not chunk_done:
+                    model = models[active_model_idx]
+                    active_model = model
+                    prompt = build_prompt(model, chunk)
+
+                    for attempt in range(max_retries):
+                        try:
+                            response = call_extract_llm(model=model, prompt=prompt, stage=stage_name)
+                            outputs.append({"chunk_id": str(chunk.id), "model": model, "response": response})
+                            chunk_done = True
+                            break
+                        except Exception as exc:
+                            chunk_last_error = exc
+                            if attempt < max_retries - 1:
+                                time.sleep(backoff_base ** (attempt + 1))
+
+                    if not chunk_done:
+                        active_model_idx += 1
+
+                if not chunk_done:
+                    errors.append(
+                        {
+                            "chunk_id": str(chunk.id),
+                            "page_number": chunk.page_number,
+                            "error": str(chunk_last_error) if chunk_last_error else "unknown_error",
+                        }
+                    )
 
     return active_model, outputs, errors
 
@@ -593,12 +725,16 @@ def _extract_entities_impl(db: Session, document: Document, run: ExtractionRun, 
     def _build(model: str, chunk: Chunk) -> str:
         return _build_extraction_prompt("entity_extraction", chunk, document)
 
-    model_used, outputs, errors = _run_chunk_calls(
+    def _build_group(model: str, group: list[Chunk]) -> str:
+        return _build_grouped_extraction_prompt("entity_extraction", group, document)
+
+    model_used, outputs, errors = _run_grouped_chunk_calls(
         chunks=chunks,
         stage_name="entity_extraction",
         doc_type=document.doc_type,
         llm_cfg=llm_cfg,
         build_prompt=_build,
+        build_group_prompt=_build_group,
     )
 
     success_count = 0
@@ -656,12 +792,16 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
     def _build(model: str, chunk: Chunk) -> str:
         return _build_extraction_prompt("obligation_extraction", chunk, document)
 
-    model_used, outputs, errors = _run_chunk_calls(
+    def _build_group(model: str, group: list[Chunk]) -> str:
+        return _build_grouped_extraction_prompt("obligation_extraction", group, document)
+
+    model_used, outputs, errors = _run_grouped_chunk_calls(
         chunks=chunks,
         stage_name="obligation_extraction",
         doc_type=document.doc_type,
         llm_cfg=llm_cfg,
         build_prompt=_build,
+        build_group_prompt=_build_group,
     )
     aliases = _get_obligation_aliases(document.doc_type)
 
@@ -764,12 +904,16 @@ def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm
     def _build(model: str, chunk: Chunk) -> str:
         return _build_extraction_prompt("risk_extraction", chunk, document)
 
-    model_used, outputs, errors = _run_chunk_calls(
+    def _build_group(model: str, group: list[Chunk]) -> str:
+        return _build_grouped_extraction_prompt("risk_extraction", group, document)
+
+    model_used, outputs, errors = _run_grouped_chunk_calls(
         chunks=chunks,
         stage_name="risk_extraction",
         doc_type=document.doc_type,
         llm_cfg=llm_cfg,
         build_prompt=_build,
+        build_group_prompt=_build_group,
     )
 
     parsed_candidates: list[dict[str, object]] = []

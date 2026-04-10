@@ -244,6 +244,15 @@ def test_risk_type_enum_has_prompt_categories():
     assert actual == expected
 
 
+def _settings_no_grouping():
+    return types.SimpleNamespace(raw={
+        "llm": {"primary_model": "test-model", "fallback_models": [],
+                "max_retries": 1, "retry_backoff_base": 1,
+                "chunk_selection": {"chunks_per_group": 1}},
+        "domains": {},
+    })
+
+
 def test_extract_entities_partial_failure_and_suggestions(monkeypatch):
     document = _make_document()
     chunks = [
@@ -263,6 +272,7 @@ def test_extract_entities_partial_failure_and_suggestions(monkeypatch):
             raise RuntimeError("chunk failure")
         return [{"name": "ACME Construction LLC", "page_number": 1}]
 
+    monkeypatch.setattr(extract_task, "settings", _settings_no_grouping())
     monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
     monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
     monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
@@ -313,6 +323,7 @@ def test_extract_obligations_maps_fields_and_handles_partial_failure(monkeypatch
             }
         ]
 
+    monkeypatch.setattr(extract_task, "settings", _settings_no_grouping())
     monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
     monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
     monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
@@ -361,6 +372,20 @@ def test_extract_obligations_maps_delivery_and_maintenance_aliases(monkeypatch):
             },
         ]
 
+    fake_settings = types.SimpleNamespace(raw={
+        "llm": {"primary_model": "test-model", "fallback_models": [],
+                "max_retries": 1, "retry_backoff_base": 1,
+                "chunk_selection": {"chunks_per_group": 1}},
+        "domains": {
+            "construction": {
+                "doc_types": ["contract"],
+                "obligation_aliases": {"delivery": "submission", "maintenance": "inspection"},
+                "stage_keywords": {}, "vocab_preambles": {},
+            },
+        },
+    })
+
+    monkeypatch.setattr(extract_task, "settings", fake_settings)
     monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
     monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
     monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
@@ -400,7 +425,9 @@ def test_extract_risks_uses_stage_fallback_for_remaining_chunks(monkeypatch):
                 "fallback_models": ["fallback-model"],
                 "max_retries": 1,
                 "retry_backoff_base": 1,
-            }
+                "chunk_selection": {"chunks_per_group": 1},
+            },
+            "domains": {},
         }
     )
 
@@ -450,7 +477,7 @@ def test_extract_risks_honors_chunk_selection_limit(monkeypatch):
                 "fallback_models": [],
                 "max_retries": 1,
                 "retry_backoff_base": 1,
-                "chunk_selection": {"max_chunks_per_stage": 1, "use_mmr": False},
+                "chunk_selection": {"max_chunks_per_stage": 1, "use_mmr": False, "chunks_per_group": 1},
             }
         }
     )
@@ -505,6 +532,7 @@ def test_extract_obligations_deduplicates_overlapping_quotes_and_keeps_richer_pa
             }
         ]
 
+    monkeypatch.setattr(extract_task, "settings", _settings_no_grouping())
     monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
     monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
     monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
@@ -533,6 +561,7 @@ def test_extract_risks_deduplicates_overlapping_quotes_and_keeps_best_parse(monk
             return [{"quote": "Borrower default may trigger foreclosure.", "risk_type": "unknown_risk", "severity": "low"}]
         return [{"quote": "Borrower default may trigger foreclosure. ", "risk_type": "contractual", "severity": "high"}]
 
+    monkeypatch.setattr(extract_task, "settings", _settings_no_grouping())
     monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
     monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
     monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
@@ -544,3 +573,118 @@ def test_extract_risks_deduplicates_overlapping_quotes_and_keeps_best_parse(monk
     risk = db.risks[0]
     assert risk.risk_type == RiskType.contractual
     assert risk.severity == Severity.high
+
+
+# ---------------------------------------------------------------------------
+# New tests for grouped chunk extraction + prompt changes
+# ---------------------------------------------------------------------------
+
+
+def test_group_chunks_creates_correct_groups():
+    doc_id = uuid.uuid4()
+    chunks = [_make_chunk(doc_id, i, f"text {i}") for i in range(7)]
+    groups = extract_task._group_chunks(chunks, 3)
+    assert len(groups) == 3
+    assert len(groups[0]) == 3
+    assert len(groups[1]) == 3
+    assert len(groups[2]) == 1
+
+    # group_size <= 1 produces one chunk per group
+    singles = extract_task._group_chunks(chunks, 1)
+    assert len(singles) == 7
+    assert all(len(g) == 1 for g in singles)
+
+
+def test_build_grouped_prompt_contains_all_chunks():
+    document = _make_document()
+    chunks = [
+        _make_chunk(document.id, 1, "Alpha clause text."),
+        _make_chunk(document.id, 2, "Beta clause text."),
+        _make_chunk(document.id, 3, "Gamma clause text."),
+    ]
+    prompt = extract_task._build_grouped_extraction_prompt(
+        "obligation_extraction", chunks, document,
+    )
+    assert "Alpha clause text." in prompt
+    assert "Beta clause text." in prompt
+    assert "Gamma clause text." in prompt
+    assert "--- Page 1 ---" in prompt
+    assert "--- Page 2 ---" in prompt
+    assert "--- Page 3 ---" in prompt
+    assert "Pages: 1\u20133" in prompt
+    assert "Do NOT duplicate items" in prompt
+
+
+def test_grouped_extraction_reduces_llm_calls(monkeypatch):
+    document = _make_document()
+    chunks = [_make_chunk(document.id, i, f"Chunk {i} shall comply.") for i in range(6)]
+    db = FakeSession(document=document, chunks=chunks, entities=[])
+
+    call_count = [0]
+
+    def _fake_llm(*, model: str, prompt: str, stage: str):
+        call_count[0] += 1
+        return [{"quote": "shall comply", "obligation_type": "compliance",
+                 "modality": "shall", "severity": "medium",
+                 "due_date": None, "due_rule": None, "responsible_party": None}]
+
+    fake_settings = types.SimpleNamespace(raw={
+        "llm": {"primary_model": "test-model", "fallback_models": [],
+                "max_retries": 1, "retry_backoff_base": 1,
+                "chunk_selection": {"chunks_per_group": 3}},
+        "domains": {},
+    })
+
+    monkeypatch.setattr(extract_task, "settings", fake_settings)
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    extract_task.extract_obligations(document.id)
+
+    # 6 chunks / group_size 3 = 2 LLM calls
+    assert call_count[0] == 2
+
+
+def test_grouped_extraction_falls_back_on_group_failure(monkeypatch):
+    document = _make_document()
+    chunks = [
+        _make_chunk(document.id, 1, "Risk penalty clause A."),
+        _make_chunk(document.id, 2, "Risk penalty clause B."),
+    ]
+    db = FakeSession(document=document, chunks=chunks)
+
+    call_count = [0]
+
+    def _fake_llm(*, model: str, prompt: str, stage: str):
+        call_count[0] += 1
+        # Grouped prompt contains "--- Page" header; fail it
+        if "--- Page" in prompt:
+            raise RuntimeError("group too large")
+        # Per-chunk fallback succeeds
+        return [{"quote": "penalty clause", "risk_type": "financial", "severity": "high"}]
+
+    fake_settings = types.SimpleNamespace(raw={
+        "llm": {"primary_model": "test-model", "fallback_models": [],
+                "max_retries": 1, "retry_backoff_base": 1,
+                "chunk_selection": {"chunks_per_group": 5}},
+        "domains": {},
+    })
+
+    monkeypatch.setattr(extract_task, "settings", fake_settings)
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    extract_task.extract_risks(document.id)
+
+    # Group call failed (1 call) → per-chunk fallback (2 calls) = 3 total
+    assert call_count[0] == 3
+    assert len(db.risks) >= 1
+
+
+def test_prompt_no_longer_says_err_on_inclusion():
+    assert "err on the side of inclusion" not in extract_task._OBLIGATION_SCHEMA
+    assert "err on the side of inclusion" not in extract_task._RISK_SCHEMA

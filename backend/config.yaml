@@ -37,6 +37,7 @@ llm:
     max_chunks_per_stage: 30
     use_mmr: true
     mmr_lambda: 0.7
+    chunks_per_group: 5
 
 ocr:
   min_raw_text_chars: 50
