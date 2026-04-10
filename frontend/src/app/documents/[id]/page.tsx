@@ -80,6 +80,7 @@ export default function DocumentDetailPage() {
   const [riskTarget, setRiskTarget] = useState<Risk | null>(null);
   const [initialDecision, setInitialDecision] = useState<ReviewDecision>("approve");
 
+  const [showRejected, setShowRejected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isItemsLoading, setIsItemsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -215,7 +216,7 @@ export default function DocumentDetailPage() {
   }
 
   const sortedObligations = useMemo(() => {
-    return [...obligations].sort((a, b) => {
+    return [...obligations].filter((item) => showRejected || item.status !== "rejected").sort((a, b) => {
       let cmp = 0;
       if (obSortKey === "severity") cmp = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
       else if (obSortKey === "status") cmp = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
@@ -228,10 +229,10 @@ export default function DocumentDetailPage() {
       }
       return obSortDir === "desc" ? -cmp : cmp;
     });
-  }, [obligations, obSortKey, obSortDir]);
+  }, [obligations, obSortKey, obSortDir, showRejected]);
 
   const sortedRisks = useMemo(() => {
-    return [...risks].sort((a, b) => {
+    return [...risks].filter((item) => showRejected || item.status !== "rejected").sort((a, b) => {
       let cmp = 0;
       if (riskSortKey === "severity") cmp = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
       else if (riskSortKey === "status") cmp = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
@@ -243,7 +244,7 @@ export default function DocumentDetailPage() {
       }
       return riskSortDir === "desc" ? -cmp : cmp;
     });
-  }, [risks, riskSortKey, riskSortDir]);
+  }, [risks, riskSortKey, riskSortDir, showRejected]);
 
   const totalPages = status?.total_pages ?? document?.total_pages ?? null;
   const progressPercent = computeProgressPercent(status, document?.parse_status);
@@ -342,7 +343,7 @@ export default function DocumentDetailPage() {
 
             <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
               <div className="border-b border-border px-4 py-3">
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => setActiveTab("obligations")}
                     className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -351,7 +352,7 @@ export default function DocumentDetailPage() {
                         : "border border-border text-text-secondary hover:text-text-primary"
                     }`}
                   >
-                    Obligations ({obligations.length})
+                    Obligations ({sortedObligations.length})
                   </button>
                   <button
                     onClick={() => setActiveTab("risks")}
@@ -361,8 +362,17 @@ export default function DocumentDetailPage() {
                         : "border border-border text-text-secondary hover:text-text-primary"
                     }`}
                   >
-                    Risks ({risks.length})
+                    Risks ({sortedRisks.length})
                   </button>
+                  <label className="ml-auto inline-flex items-center gap-1.5 text-sm text-text-secondary">
+                    <input
+                      type="checkbox"
+                      checked={showRejected}
+                      onChange={(event) => setShowRejected(event.target.checked)}
+                      className="rounded border-border"
+                    />
+                    Show rejected
+                  </label>
                 </div>
               </div>
 

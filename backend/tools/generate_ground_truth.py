@@ -37,11 +37,17 @@ logger = logging.getLogger(__name__)
 
 _GT_PROMPT = """You are an expert construction contract analyst. Your task is to exhaustively identify every obligation and risk in the contract text below.
 
-SEVERITY DEFINITIONS (use these exactly):
+OBLIGATION SEVERITY DEFINITIONS (use these exactly for obligations):
 - critical: financial penalty clause, liquidated damages, indemnification, termination rights, bond/insurance requirements with termination consequences
 - high:     mandatory compliance with statute/regulation, hard deadlines with consequences, OSHA/safety requirements
 - medium:   standard contractual duty (shall/must) without direct penalty language, payment terms, submission requirements
 - low:      procedural or administrative duties, notice requirements, record-keeping, formatting requirements
+
+RISK SEVERITY DEFINITIONS (use these exactly for risks):
+- critical: financial penalty clause, liquidated damages, indemnification, termination rights, bond forfeiture, personal liability exposure
+- high:     breach of contract consequences, acceleration clauses, foreclosure triggers, safety violation consequences
+- medium:   standard risk allocation clauses, insurance requirements, warranty limitations, schedule delay provisions
+- low:      procedural non-compliance risks, administrative penalties, minor reporting failures
 
 OBLIGATION TYPES (use one): payment, submission, notification, compliance, inspection
 
@@ -49,8 +55,8 @@ RISK TYPES (use one): financial, schedule, quality, safety, compliance, contract
 
 INSTRUCTIONS:
 1. Read the entire contract text carefully.
-2. Extract EVERY obligation — err on the side of inclusion.
-3. Extract EVERY risk — things that could go wrong, expose a party to liability, or cause financial loss.
+2. Extract only items that clearly impose a duty on a named or implied party.
+3. Extract only risk clauses that clearly expose a party to liability, penalty, or financial loss.
 4. Use verbatim quotes from the text (exact wording, not paraphrased).
 5. Assign severity using the definitions above. Be decisive.
 6. For risks, provide a short reasoning string explaining the severity assignment.
