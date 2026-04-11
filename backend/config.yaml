@@ -39,11 +39,6 @@ llm:
     mmr_lambda: 0.7
     chunks_per_group: 5
 
-extraction:
-  mode: auto          # auto | full_doc | chunked
-  full_doc_token_threshold: 150000
-  chars_per_token: 4
-
 ocr:
   min_raw_text_chars: 50
 
