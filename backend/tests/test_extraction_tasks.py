@@ -250,6 +250,7 @@ def _settings_no_grouping():
                 "max_retries": 1, "retry_backoff_base": 1,
                 "chunk_selection": {"chunks_per_group": 1}},
         "domains": {},
+        "extraction": {"mode": "chunked"},
     })
 
 
@@ -383,6 +384,7 @@ def test_extract_obligations_maps_delivery_and_maintenance_aliases(monkeypatch):
                 "stage_keywords": {}, "vocab_preambles": {},
             },
         },
+        "extraction": {"mode": "chunked"},
     })
 
     monkeypatch.setattr(extract_task, "settings", fake_settings)
@@ -428,6 +430,7 @@ def test_extract_risks_uses_stage_fallback_for_remaining_chunks(monkeypatch):
                 "chunk_selection": {"chunks_per_group": 1},
             },
             "domains": {},
+            "extraction": {"mode": "chunked"},
         }
     )
 
@@ -478,7 +481,8 @@ def test_extract_risks_honors_chunk_selection_limit(monkeypatch):
                 "max_retries": 1,
                 "retry_backoff_base": 1,
                 "chunk_selection": {"max_chunks_per_stage": 1, "use_mmr": False, "chunks_per_group": 1},
-            }
+            },
+            "extraction": {"mode": "chunked"},
         }
     )
 
@@ -633,6 +637,7 @@ def test_grouped_extraction_reduces_llm_calls(monkeypatch):
                 "max_retries": 1, "retry_backoff_base": 1,
                 "chunk_selection": {"chunks_per_group": 3}},
         "domains": {},
+        "extraction": {"mode": "chunked"},
     })
 
     monkeypatch.setattr(extract_task, "settings", fake_settings)
@@ -670,6 +675,7 @@ def test_grouped_extraction_falls_back_on_group_failure(monkeypatch):
                 "max_retries": 1, "retry_backoff_base": 1,
                 "chunk_selection": {"chunks_per_group": 5}},
         "domains": {},
+        "extraction": {"mode": "chunked"},
     })
 
     monkeypatch.setattr(extract_task, "settings", fake_settings)
@@ -688,3 +694,177 @@ def test_grouped_extraction_falls_back_on_group_failure(monkeypatch):
 def test_prompt_no_longer_says_err_on_inclusion():
     assert "err on the side of inclusion" not in extract_task._OBLIGATION_SCHEMA
     assert "err on the side of inclusion" not in extract_task._RISK_SCHEMA
+
+
+# ---------------------------------------------------------------------------
+# Full-document extraction tests
+# ---------------------------------------------------------------------------
+
+
+def test_estimate_token_count():
+    doc_id = uuid.uuid4()
+    chunks = [
+        _make_chunk(doc_id, 1, "a" * 400),
+        _make_chunk(doc_id, 2, "b" * 400),
+        _make_chunk(doc_id, 3, "c" * 400),
+    ]
+    assert extract_task._estimate_token_count(chunks, 4) == 300
+    assert extract_task._estimate_token_count(chunks, 2) == 600
+
+
+def test_should_use_full_doc_modes():
+    doc_id = uuid.uuid4()
+    chunks = [_make_chunk(doc_id, 1, "x" * 100)]
+
+    assert extract_task._should_use_full_doc(chunks, {"mode": "chunked"}) is False
+    assert extract_task._should_use_full_doc(chunks, {"mode": "full_doc"}) is True
+
+    # auto: 100 chars / 4 = 25 tokens + 1500 overhead = 1525 < 150000 → True
+    assert extract_task._should_use_full_doc(chunks, {"mode": "auto"}) is True
+
+    # auto with tiny threshold: 1525 > 10 → False
+    assert extract_task._should_use_full_doc(
+        chunks, {"mode": "auto", "full_doc_token_threshold": 10}
+    ) is False
+
+
+def test_full_doc_mode_sends_single_call(monkeypatch):
+    document = _make_document()
+    chunks = [_make_chunk(document.id, i, f"Chunk {i} shall comply.") for i in range(6)]
+    db = FakeSession(document=document, chunks=chunks, entities=[])
+
+    call_count = [0]
+    prompts_seen = []
+
+    def _fake_llm(*, model: str, prompt: str, stage: str):
+        call_count[0] += 1
+        prompts_seen.append(prompt)
+        return [{"quote": "shall comply", "obligation_type": "compliance",
+                 "modality": "shall", "severity": "medium",
+                 "due_date": None, "due_rule": None, "responsible_party": None}]
+
+    fake_settings = types.SimpleNamespace(raw={
+        "llm": {"primary_model": "test-model", "fallback_models": [],
+                "max_retries": 1, "retry_backoff_base": 1},
+        "domains": {},
+        "extraction": {"mode": "full_doc"},
+    })
+
+    monkeypatch.setattr(extract_task, "settings", fake_settings)
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    extract_task.extract_obligations(document.id)
+
+    assert call_count[0] == 1
+    # All chunk texts should appear in the single prompt
+    for i in range(6):
+        assert f"Chunk {i}" in prompts_seen[0]
+
+
+def test_auto_mode_selects_full_doc_for_small_docs(monkeypatch):
+    document = _make_document()
+    chunks = [_make_chunk(document.id, 1, "Small doc text.")]
+    db = FakeSession(document=document, chunks=chunks, entities=[])
+
+    call_count = [0]
+
+    def _fake_llm(*, model: str, prompt: str, stage: str):
+        call_count[0] += 1
+        return [{"quote": "Small doc text.", "obligation_type": "compliance",
+                 "modality": "shall", "severity": "medium",
+                 "due_date": None, "due_rule": None, "responsible_party": None}]
+
+    fake_settings = types.SimpleNamespace(raw={
+        "llm": {"primary_model": "test-model", "fallback_models": [],
+                "max_retries": 1, "retry_backoff_base": 1},
+        "domains": {},
+        "extraction": {"mode": "auto", "full_doc_token_threshold": 100000},
+    })
+
+    monkeypatch.setattr(extract_task, "settings", fake_settings)
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    extract_task.extract_obligations(document.id)
+
+    # Small doc → full-doc → 1 LLM call
+    assert call_count[0] == 1
+
+
+def test_auto_mode_selects_chunked_for_large_docs(monkeypatch):
+    document = _make_document()
+    chunks = [_make_chunk(document.id, i, f"Chunk {i} text.") for i in range(3)]
+    db = FakeSession(document=document, chunks=chunks, entities=[])
+
+    call_count = [0]
+
+    def _fake_llm(*, model: str, prompt: str, stage: str):
+        call_count[0] += 1
+        return [{"quote": "text", "obligation_type": "compliance",
+                 "modality": "shall", "severity": "medium",
+                 "due_date": None, "due_rule": None, "responsible_party": None}]
+
+    fake_settings = types.SimpleNamespace(raw={
+        "llm": {"primary_model": "test-model", "fallback_models": [],
+                "max_retries": 1, "retry_backoff_base": 1,
+                "chunk_selection": {"chunks_per_group": 1}},
+        "domains": {},
+        "extraction": {"mode": "auto", "full_doc_token_threshold": 1},
+    })
+
+    monkeypatch.setattr(extract_task, "settings", fake_settings)
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    extract_task.extract_obligations(document.id)
+
+    # Threshold=1 → chunked → multiple calls (one per chunk)
+    assert call_count[0] == 3
+
+
+def test_full_doc_falls_back_to_chunked_on_failure(monkeypatch):
+    document = _make_document()
+    chunks = [
+        _make_chunk(document.id, 1, "Obligation clause A."),
+        _make_chunk(document.id, 2, "Obligation clause B."),
+    ]
+    db = FakeSession(document=document, chunks=chunks, entities=[])
+
+    call_count = [0]
+
+    def _fake_llm(*, model: str, prompt: str, stage: str):
+        call_count[0] += 1
+        # Full-doc prompt has all chunks → contains "--- Page" headers
+        if "--- Page 1 ---" in prompt and "--- Page 2 ---" in prompt:
+            raise RuntimeError("context too long")
+        # Per-chunk fallback succeeds
+        return [{"quote": "clause", "obligation_type": "compliance",
+                 "modality": "shall", "severity": "medium",
+                 "due_date": None, "due_rule": None, "responsible_party": None}]
+
+    fake_settings = types.SimpleNamespace(raw={
+        "llm": {"primary_model": "test-model", "fallback_models": [],
+                "max_retries": 1, "retry_backoff_base": 1,
+                "chunk_selection": {"chunks_per_group": 1}},
+        "domains": {},
+        "extraction": {"mode": "full_doc"},
+    })
+
+    monkeypatch.setattr(extract_task, "settings", fake_settings)
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_extract_llm", _fake_llm)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    extract_task.extract_obligations(document.id)
+
+    # Full-doc failed (1 call) + chunked fallback (2 calls) = 3
+    assert call_count[0] == 3
+    assert len(db.obligations) >= 1
