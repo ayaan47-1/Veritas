@@ -685,7 +685,7 @@ def _start_run(
         document_id=document.id,
         prompt_version_id=prompt_version.id,
         model_used=str(llm_cfg.get("primary_model", "gpt-4o")),
-        config_snapshot={"llm": llm_cfg},
+        config_snapshot={"llm": llm_cfg, "extraction": settings.raw.get("extraction", {})},
         stage=stage,
         status=ExtractionStatus.running,
     )
@@ -722,8 +722,8 @@ def _extract_entities_impl(db: Session, document: Document, run: ExtractionRun, 
     )
     entities = db.query(Entity).all()
 
-    def _build(model: str, chunk: Chunk) -> str:
-        return _build_extraction_prompt("entity_extraction", chunk, document)
+    extraction_cfg = settings.raw.get("extraction", {})
+    use_full_doc = _should_use_full_doc(chunks, extraction_cfg)
 
     def _build_group(model: str, group: list[Chunk]) -> str:
         return _build_grouped_extraction_prompt("entity_extraction", group, document)
@@ -773,7 +773,10 @@ def _extract_entities_impl(db: Session, document: Document, run: ExtractionRun, 
     return {
         "run_id": str(run.id),
         "model_used": model_used,
-        "selected_chunk_count": len(_select_chunks_for_stage(chunks, "entity_extraction", llm_cfg, document.doc_type)),
+        "selected_chunk_count": len(chunks) if use_full_doc else len(
+            _select_chunks_for_stage(chunks, "entity_extraction", llm_cfg, document.doc_type)
+        ),
+        "extraction_mode": "full_doc" if use_full_doc else "chunked",
         "mention_count": success_count,
         "error_count": len(errors),
         "run_status": run.status.value,
@@ -789,8 +792,8 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
     )
     entities = db.query(Entity).all()
 
-    def _build(model: str, chunk: Chunk) -> str:
-        return _build_extraction_prompt("obligation_extraction", chunk, document)
+    extraction_cfg = settings.raw.get("extraction", {})
+    use_full_doc = _should_use_full_doc(chunks, extraction_cfg)
 
     def _build_group(model: str, group: list[Chunk]) -> str:
         return _build_grouped_extraction_prompt("obligation_extraction", group, document)
@@ -881,9 +884,10 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
     return {
         "run_id": str(run.id),
         "model_used": model_used,
-        "selected_chunk_count": len(
+        "selected_chunk_count": len(chunks) if use_full_doc else len(
             _select_chunks_for_stage(chunks, "obligation_extraction", llm_cfg, document.doc_type)
         ),
+        "extraction_mode": "full_doc" if use_full_doc else "chunked",
         "raw_obligation_count": len(parsed_candidates),
         "deduplicated_obligation_count": len(deduped_candidates),
         "dedup_removed_count": removed_count,
@@ -901,8 +905,8 @@ def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm
         .all()
     )
 
-    def _build(model: str, chunk: Chunk) -> str:
-        return _build_extraction_prompt("risk_extraction", chunk, document)
+    extraction_cfg = settings.raw.get("extraction", {})
+    use_full_doc = _should_use_full_doc(chunks, extraction_cfg)
 
     def _build_group(model: str, group: list[Chunk]) -> str:
         return _build_grouped_extraction_prompt("risk_extraction", group, document)
@@ -974,7 +978,10 @@ def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm
     return {
         "run_id": str(run.id),
         "model_used": model_used,
-        "selected_chunk_count": len(_select_chunks_for_stage(chunks, "risk_extraction", llm_cfg, document.doc_type)),
+        "selected_chunk_count": len(chunks) if use_full_doc else len(
+            _select_chunks_for_stage(chunks, "risk_extraction", llm_cfg, document.doc_type)
+        ),
+        "extraction_mode": "full_doc" if use_full_doc else "chunked",
         "raw_risk_count": len(parsed_candidates),
         "deduplicated_risk_count": len(deduped_candidates),
         "dedup_removed_count": removed_count,
