@@ -36,11 +36,16 @@ make frontend         # Next.js on :3000
 make inngest          # Inngest dashboard on :8288
 make db-up            # start Postgres container
 make dev              # backend + frontend together
+make dev-all          # db + backend + frontend + inngest
 
 # Run tests
-make test
+make test                  # backend pytest
+make lint                  # frontend ESLint
+make build                 # frontend production build
 python3 -m pytest -q backend/tests
 python3 -m pytest backend/tests/test_pipeline_tasks.py::test_parse_document_parses_pdf_pages_and_counts_scanned -v
+cd frontend && npm run test          # Vitest (frontend unit tests)
+cd frontend && npm run test:watch    # Vitest in watch mode
 
 # Compile check (run after any edit)
 python3 -m compileall backend/app backend/alembic backend/tools -q
@@ -49,7 +54,7 @@ python3 -m compileall backend/app backend/alembic backend/tools -q
 python3 -m alembic -c backend/alembic.ini upgrade head
 python3 -m alembic -c backend/alembic.ini revision --autogenerate -m "description"
 python3 -m alembic -c backend/alembic.ini heads
-# Current head chain: c03dec85f67a → e1f2a3b4c5d6 → a9b8c7d6e5f4 → f3c7beac04b9 → 7c1d4e2b9a10 → b2e4f6a8c0d1 → c4d5e6f7a8b9 (HEAD)
+# Current head chain: c03dec85f67a → e1f2a3b4c5d6 → a9b8c7d6e5f4 → f3c7beac04b9 → 7c1d4e2b9a10 → b2e4f6a8c0d1 → c4d5e6f7a8b9 → d5e6f7a8b9c0 (HEAD)
 
 # Eval / benchmark tools (require API key env vars)
 python3 -m backend.tools.generate_ground_truth --document-id <uuid>   # AI-labels all obligations/risks
@@ -157,7 +162,7 @@ Extraction stages 6–8 use Maximal Marginal Relevance to select the most releva
 ### Task modules (`backend/app/worker/tasks/`)
 
 - `classify.py` — creates `extraction_runs`, executes retry/fallback model chain, applies heuristic validation, sets `documents.doc_type`.
-- `extract.py` — obligation/risk/entity extraction. MMR chunk selection via `_select_chunks_for_stage`. Per-chunk LLM calls with model fallback. Persists partial results on chunk failure. `_coerce_enum` maps LLM strings to DB enums; obligation type aliases (`delivery→submission`, `maintenance→inspection`, `reporting→compliance`) applied before coercion.
+- `extract.py` — obligation/risk/entity extraction. MMR chunk selection via `_select_chunks_for_stage`. Per-chunk LLM calls with model fallback. Persists partial results on chunk failure. `_coerce_enum` maps LLM strings to DB enums; obligation type aliases (`delivery→submission`, `maintenance→inspection`, `reporting→compliance`) applied before coercion. Cross-chunk deduplication via `_dedupe_candidates` (containment check, Jaccard overlap, SequenceMatcher ratio) with candidate scoring (`_obligation_candidate_score`, `_risk_candidate_score`) to keep the best match when duplicates span overlapping chunks.
 - `verify.py` — deterministic quote verification against normalized page text. Creates evidence records, rejects on quote mismatch, suppresses duplicates, tags external references, generates contradiction risks. Contradiction risks use `RiskType.contractual`.
 - `score.py` — deterministic additive scoring. Obligations: 9 signals + 3 penalties. Risks: 7 signals + 2 penalties. `system_confidence < 50 → rejected`. All weights in `config.yaml`.
 - `rescore.py` — LLM severity re-scoring (stage 10b). Batches all obligations/risks per document (up to `max_items_per_call`), calls LLM with evidence page context, writes `llm_severity` and `llm_quality_confidence` non-destructively. No-op if `rescoring.enabled=false` or LLM fails.
@@ -219,7 +224,7 @@ Service-layer tests (`test_chunking.py`, `test_normalization.py`) — pure funct
 
 `test_llm_service.py` patches `backend.app.services.llm.litellm` (the module-level import).
 
-**Current baseline: 126 tests, all passing.**
+**Current baseline: 154 tests, all passing.**
 
 ## Non-Negotiable Rules
 
@@ -246,7 +251,7 @@ Service-layer tests (`test_chunking.py`, `test_normalization.py`) — pure funct
 
 ## Implementation Status
 
-All 13 pipeline steps implemented. All API routers implemented. Clerk JWT auth live. Current baseline: **120 passing tests** (backend pytest).
+All 13 pipeline steps implemented. All API routers implemented. Clerk JWT auth live. Current baseline: **154 passing tests** (backend pytest, 20 test files).
 
 Implemented frontend screens:
 - Asset list (`/`) — cards link to `/assets/[id]/documents`
@@ -276,7 +281,7 @@ import { useAuth } from "@clerk/nextjs";
 
 const { getToken } = useAuth();
 const token = await getToken();
-const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/obligations`, {
+const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001"}/obligations`, {
   headers: { Authorization: `Bearer ${token}` },
 });
 ```
