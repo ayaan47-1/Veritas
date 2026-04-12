@@ -523,6 +523,53 @@ def _build_grouped_extraction_prompt(stage_name: str, chunks: list[Chunk], docum
     )
 
 
+def _estimate_token_count(chunks: list[Chunk], chars_per_token: int = 4) -> int:
+    """Estimate the number of tokens in the concatenated chunk text."""
+    return sum(len(c.text or "") for c in chunks) // max(1, chars_per_token)
+
+
+def _should_use_full_doc(chunks: list[Chunk], extraction_cfg: dict) -> bool:
+    """Decide whether to use full-document extraction mode."""
+    mode = str(extraction_cfg.get("mode", "auto")).strip().lower()
+    if mode == "chunked":
+        return False
+    if mode == "full_doc":
+        return True
+    # mode == "auto": estimate tokens, compare to threshold
+    chars_per_token = int(extraction_cfg.get("chars_per_token", 4) or 4)
+    threshold = int(extraction_cfg.get("full_doc_token_threshold", 150_000) or 150_000)
+    estimated = _estimate_token_count(chunks, chars_per_token) + 1500  # prompt overhead
+    return estimated <= threshold
+
+
+def _run_full_doc_call(
+    *,
+    chunks: list[Chunk],
+    stage_name: str,
+    document: Document,
+    llm_cfg: dict,
+) -> tuple[str, list[dict], list[dict]]:
+    """Single LLM call with all chunks concatenated. Raises RuntimeError on total failure."""
+    prompt = _build_grouped_extraction_prompt(stage_name, chunks, document)
+    models = [llm_cfg.get("primary_model", "gpt-4o")] + list(llm_cfg.get("fallback_models", []))
+    max_retries = max(1, int(llm_cfg.get("max_retries", 3)))
+    backoff_base = max(1, int(llm_cfg.get("retry_backoff_base", 2)))
+
+    last_error: Exception | None = None
+    for model in models:
+        for attempt in range(max_retries):
+            try:
+                response = call_extract_llm(model=model, prompt=prompt, stage=stage_name)
+                logger.info("Full-doc extraction succeeded for %s using %s", stage_name, model)
+                return model, [{"chunk_id": str(chunks[0].id), "model": model, "response": response}], []
+            except Exception as exc:
+                last_error = exc
+                if attempt < max_retries - 1:
+                    time.sleep(backoff_base ** (attempt + 1))
+
+    raise RuntimeError(f"Full-doc extraction failed for {stage_name}: {last_error}")
+
+
 def _run_chunk_calls(
     *,
     chunks: list[Chunk],
@@ -725,17 +772,31 @@ def _extract_entities_impl(db: Session, document: Document, run: ExtractionRun, 
     extraction_cfg = settings.raw.get("extraction", {})
     use_full_doc = _should_use_full_doc(chunks, extraction_cfg)
 
-    def _build_group(model: str, group: list[Chunk]) -> str:
-        return _build_grouped_extraction_prompt("entity_extraction", group, document)
+    if use_full_doc:
+        try:
+            model_used, outputs, errors = _run_full_doc_call(
+                chunks=chunks, stage_name="entity_extraction",
+                document=document, llm_cfg=llm_cfg,
+            )
+        except Exception:
+            logger.warning("Full-doc extraction failed for entities, falling back to chunked")
+            use_full_doc = False
 
-    model_used, outputs, errors = _run_grouped_chunk_calls(
-        chunks=chunks,
-        stage_name="entity_extraction",
-        doc_type=document.doc_type,
-        llm_cfg=llm_cfg,
-        build_prompt=_build,
-        build_group_prompt=_build_group,
-    )
+    if not use_full_doc:
+        def _build(model: str, chunk: Chunk) -> str:
+            return _build_extraction_prompt("entity_extraction", chunk, document)
+
+        def _build_group(model: str, group: list[Chunk]) -> str:
+            return _build_grouped_extraction_prompt("entity_extraction", group, document)
+
+        model_used, outputs, errors = _run_grouped_chunk_calls(
+            chunks=chunks,
+            stage_name="entity_extraction",
+            doc_type=document.doc_type,
+            llm_cfg=llm_cfg,
+            build_prompt=_build,
+            build_group_prompt=_build_group,
+        )
 
     success_count = 0
     for item in outputs:
@@ -795,17 +856,31 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
     extraction_cfg = settings.raw.get("extraction", {})
     use_full_doc = _should_use_full_doc(chunks, extraction_cfg)
 
-    def _build_group(model: str, group: list[Chunk]) -> str:
-        return _build_grouped_extraction_prompt("obligation_extraction", group, document)
+    if use_full_doc:
+        try:
+            model_used, outputs, errors = _run_full_doc_call(
+                chunks=chunks, stage_name="obligation_extraction",
+                document=document, llm_cfg=llm_cfg,
+            )
+        except Exception:
+            logger.warning("Full-doc extraction failed for obligations, falling back to chunked")
+            use_full_doc = False
 
-    model_used, outputs, errors = _run_grouped_chunk_calls(
-        chunks=chunks,
-        stage_name="obligation_extraction",
-        doc_type=document.doc_type,
-        llm_cfg=llm_cfg,
-        build_prompt=_build,
-        build_group_prompt=_build_group,
-    )
+    if not use_full_doc:
+        def _build(model: str, chunk: Chunk) -> str:
+            return _build_extraction_prompt("obligation_extraction", chunk, document)
+
+        def _build_group(model: str, group: list[Chunk]) -> str:
+            return _build_grouped_extraction_prompt("obligation_extraction", group, document)
+
+        model_used, outputs, errors = _run_grouped_chunk_calls(
+            chunks=chunks,
+            stage_name="obligation_extraction",
+            doc_type=document.doc_type,
+            llm_cfg=llm_cfg,
+            build_prompt=_build,
+            build_group_prompt=_build_group,
+        )
     aliases = _get_obligation_aliases(document.doc_type)
 
     parsed_candidates: list[dict[str, object]] = []
@@ -908,13 +983,27 @@ def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm
     extraction_cfg = settings.raw.get("extraction", {})
     use_full_doc = _should_use_full_doc(chunks, extraction_cfg)
 
-    def _build_group(model: str, group: list[Chunk]) -> str:
-        return _build_grouped_extraction_prompt("risk_extraction", group, document)
+    if use_full_doc:
+        try:
+            model_used, outputs, errors = _run_full_doc_call(
+                chunks=chunks, stage_name="risk_extraction",
+                document=document, llm_cfg=llm_cfg,
+            )
+        except Exception:
+            logger.warning("Full-doc extraction failed for risks, falling back to chunked")
+            use_full_doc = False
 
-    model_used, outputs, errors = _run_grouped_chunk_calls(
-        chunks=chunks,
-        stage_name="risk_extraction",
-        doc_type=document.doc_type,
+    if not use_full_doc:
+        def _build(model: str, chunk: Chunk) -> str:
+            return _build_extraction_prompt("risk_extraction", chunk, document)
+
+        def _build_group(model: str, group: list[Chunk]) -> str:
+            return _build_grouped_extraction_prompt("risk_extraction", group, document)
+
+        model_used, outputs, errors = _run_grouped_chunk_calls(
+            chunks=chunks,
+            stage_name="risk_extraction",
+            doc_type=document.doc_type,
         llm_cfg=llm_cfg,
         build_prompt=_build,
         build_group_prompt=_build_group,
