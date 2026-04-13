@@ -40,6 +40,7 @@ class ParseStatus(str, enum.Enum):
     classification = "classification"
     extraction = "extraction"
     verification = "verification"
+    critic_review = "critic_review"
     scoring = "scoring"
     rescoring = "rescoring"
     complete = "complete"
@@ -78,6 +79,7 @@ class ExtractionStage(str, enum.Enum):
     entity_extraction = "entity_extraction"
     obligation_extraction = "obligation_extraction"
     risk_extraction = "risk_extraction"
+    critic_detection = "critic_detection"
 
 
 class ExtractionStatus(str, enum.Enum):

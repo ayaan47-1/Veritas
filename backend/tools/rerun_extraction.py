@@ -11,6 +11,7 @@ Stages re-run in order:
     7  extract_obligations
     8  extract_risks
     9  verify_extractions
+    9a criticize_extractions
     10 score_extractions
     10b rescore_with_llm  (skipped if rescoring.enabled=false in config)
 """
@@ -36,6 +37,7 @@ from backend.app.models import (
 )
 from backend.app.worker.tasks.extract import extract_entities, extract_obligations, extract_risks
 from backend.app.worker.tasks.verify import verify_extractions
+from backend.app.worker.tasks.critic import criticize_extractions
 from backend.app.worker.tasks.score import score_extractions
 from backend.app.worker.tasks.rescore import rescore_with_llm
 
@@ -81,6 +83,9 @@ def rerun(document_id: str) -> None:
 
     logger.info("Stage 9: verify_extractions")
     verify_extractions(document_id)
+
+    logger.info("Stage 9a: criticize_extractions")
+    criticize_extractions(document_id)
 
     logger.info("Stage 10: score_extractions")
     score_extractions(document_id)

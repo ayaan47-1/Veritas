@@ -25,7 +25,22 @@ const DOC_TYPES = [
   "deed_of_trust",
   "unknown",
 ] as const;
-const PARSE_STATUSES = ["all", "uploaded", "parsing", "ocr", "chunking", "classification", "extraction", "verification", "scoring", "complete", "partially_processed", "failed"] as const;
+const PARSE_STATUSES = [
+  "all",
+  "uploaded",
+  "parsing",
+  "ocr",
+  "chunking",
+  "classification",
+  "extraction",
+  "verification",
+  "critic_review",
+  "scoring",
+  "rescoring",
+  "complete",
+  "partially_processed",
+  "failed",
+] as const;
 
 function domainBadgeStyle(domain: string | null) {
   if (domain === "real_estate") {

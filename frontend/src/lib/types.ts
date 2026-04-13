@@ -38,6 +38,9 @@ export type Obligation = {
   reviewer_confidence: number | null;
   llm_severity: "low" | "medium" | "high" | "critical" | null;
   llm_quality_confidence: number | null;
+  critic_valid: boolean | null;
+  critic_confidence: number | null;
+  critic_reasoning: string | null;
   has_external_reference: boolean;
   contradiction_flag: boolean;
   created_at: string | null;
@@ -55,6 +58,9 @@ export type Risk = {
   reviewer_confidence: number | null;
   llm_severity: "low" | "medium" | "high" | "critical" | null;
   llm_quality_confidence: number | null;
+  critic_valid: boolean | null;
+  critic_confidence: number | null;
+  critic_reasoning: string | null;
   has_external_reference: boolean;
   contradiction_flag: boolean;
   created_at: string | null;
