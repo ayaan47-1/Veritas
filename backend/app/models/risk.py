@@ -37,6 +37,9 @@ class Risk(Base, UUIDPrimaryKeyMixin):
     reviewer_confidence: Mapped[int | None] = mapped_column(Integer)
     llm_severity: Mapped[Severity | None] = mapped_column(Enum(Severity))
     llm_quality_confidence: Mapped[int | None] = mapped_column(Integer)
+    critic_valid: Mapped[bool | None] = mapped_column(Boolean)
+    critic_confidence: Mapped[int | None] = mapped_column(Integer)
+    critic_reasoning: Mapped[str | None] = mapped_column(Text)
     has_external_reference: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     contradiction_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     extraction_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("extraction_runs.id"))
@@ -56,6 +59,10 @@ class Risk(Base, UUIDPrimaryKeyMixin):
         CheckConstraint(
             "llm_quality_confidence IS NULL OR (llm_quality_confidence >= 0 AND llm_quality_confidence <= 100)",
             name="ck_risk_llm_conf",
+        ),
+        CheckConstraint(
+            "critic_confidence IS NULL OR (critic_confidence >= 0 AND critic_confidence <= 100)",
+            name="ck_risk_critic_conf",
         ),
         Index("ix_risks_document_status", "document_id", "status"),
     )

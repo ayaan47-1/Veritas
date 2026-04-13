@@ -399,6 +399,12 @@ scoring:
     contradiction: -30
     missing_deadline: -10
 
+critic:
+  enabled: true
+  model: "claude-sonnet-4-6"
+  max_items_per_call: 30
+  auto_reject_threshold: 70
+
 rescoring:
   enabled: true
   model: "claude-haiku-4-5-20251001"

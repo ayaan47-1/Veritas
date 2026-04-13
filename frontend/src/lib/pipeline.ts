@@ -8,6 +8,7 @@ export const STAGE_PROGRESS: Record<string, number> = {
   classification: 60,
   extraction: 72,
   verification: 84,
+  critic_review: 88,
   scoring: 92,
   rescoring: 96,
   partially_processed: 100,
