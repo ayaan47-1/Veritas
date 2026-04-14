@@ -47,6 +47,14 @@ def call_extract_llm(*, model: str, prompt: str, stage: str) -> list[dict]:
     return _llm_extract(model=model, prompt=prompt, stage=stage)
 
 
+def call_classify_llm(*, model: str, prompt: str) -> dict:
+    """Call LLM for clause classification via LiteLLM. Returns parsed dict."""
+    from ...services.llm import llm_completion, parse_json_dict
+
+    raw = llm_completion(model, prompt, prefer_json_object=True)
+    return parse_json_dict(raw)
+
+
 def _to_uuid(value: str | uuid.UUID) -> uuid.UUID:
     return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
 
@@ -257,6 +265,70 @@ _RISK_SCHEMA = (
     '  "risk_type": one of financial|schedule|quality|safety|compliance|contractual|unknown_risk,\n'
     '  "severity": one of low|medium|high|critical.\n'
     "Return a JSON array only. Return [] if no risks found."
+)
+
+_CLASSIFY_SCHEMA = (
+    "You are an expert contract analyst. Your task is to walk through EVERY "
+    "clause, paragraph, and provision in the document below and classify each one.\n\n"
+    "For EACH distinct clause or paragraph, decide:\n"
+    '- "obligation" \u2014 imposes a duty, requirement, or commitment on a named or implied party\n'
+    '- "risk" \u2014 exposes a party to liability, penalty, financial loss, or adverse consequence\n'
+    '- "both" \u2014 imposes a duty AND exposes a party to risk (common for penalty clauses)\n'
+    '- "neither" \u2014 definitions, recitals, preamble, boilerplate, or informational text\n\n'
+    "OBLIGATION SEVERITY:\n"
+    "- critical: financial penalty clause, liquidated damages, indemnification, "
+    "termination rights, bond/insurance requirements with termination consequences\n"
+    "- high: mandatory compliance with statute/regulation, hard deadlines with "
+    "consequences, OSHA/safety requirements\n"
+    "- medium: standard contractual duty (shall/must) without direct penalty language, "
+    "payment terms, submission requirements\n"
+    "- low: procedural or administrative duties, notice requirements, record-keeping, "
+    "formatting requirements\n\n"
+    "RISK SEVERITY:\n"
+    "- critical: financial penalty clause, liquidated damages, indemnification, "
+    "termination rights, bond forfeiture, personal liability exposure\n"
+    "- high: breach of contract consequences, acceleration clauses, foreclosure "
+    "triggers, safety violation consequences\n"
+    "- medium: standard risk allocation clauses, insurance requirements, warranty "
+    "limitations, schedule delay provisions\n"
+    "- low: procedural non-compliance risks, administrative penalties, minor "
+    "reporting failures\n\n"
+    "OBLIGATION TYPES: payment | submission | notification | compliance | inspection | other\n"
+    "RISK TYPES: financial | schedule | quality | safety | compliance | contractual | unknown_risk\n\n"
+    "INSTRUCTIONS:\n"
+    "1. Read through the ENTIRE document systematically, clause by clause.\n"
+    "2. For each clause classified as \"obligation\" or \"both\", extract it as an obligation.\n"
+    "3. For each clause classified as \"risk\" or \"both\", extract it as a risk.\n"
+    "4. Quote the EXACT wording from the text (verbatim, 1-3 complete sentences).\n"
+    "5. Skip clauses classified as \"neither\" \u2014 do not include them.\n"
+    "6. Do NOT extract from attached statutory summaries or tenant rights disclosures "
+    "\u2014 only from the agreement itself.\n"
+    "7. Do NOT paraphrase or summarize \u2014 copy the exact words.\n\n"
+    "Return ONLY valid JSON in this exact shape:\n"
+    "{{\n"
+    '  "obligations": [\n'
+    "    {{\n"
+    '      "quote": "<verbatim text>",\n'
+    '      "obligation_type": "<payment|submission|notification|compliance|inspection|other>",\n'
+    '      "modality": "<must|shall|will|should|may|unknown>",\n'
+    '      "severity": "<low|medium|high|critical>",\n'
+    '      "due_date": null,\n'
+    '      "due_rule": null,\n'
+    '      "responsible_party": null\n'
+    "    }}\n"
+    "  ],\n"
+    '  "risks": [\n'
+    "    {{\n"
+    '      "quote": "<verbatim text>",\n'
+    '      "risk_type": "<financial|schedule|quality|safety|compliance|contractual|unknown_risk>",\n'
+    '      "severity": "<low|medium|high|critical>"\n'
+    "    }}\n"
+    "  ]\n"
+    "}}\n\n"
+    "Document type: {doc_type}\n"
+    "Pages: {first_page}\u2013{last_page}\n\n"
+    "DOCUMENT TEXT:\n"
+    "{full_text}"
 )
 
 _ENTITY_SCHEMA = (
@@ -523,6 +595,27 @@ def _build_grouped_extraction_prompt(stage_name: str, chunks: list[Chunk], docum
     )
 
 
+def _build_classify_prompt(chunks: list[Chunk], document: Document) -> str:
+    """Build a clause-classification prompt for combined obligation+risk extraction."""
+    vocab_preamble = _get_vocab_preamble("obligation_extraction", document.doc_type)
+    preamble = f"{vocab_preamble}\n\n" if vocab_preamble else ""
+    pages = [c.page_number for c in chunks if c.page_number is not None]
+    first_page = min(pages) if pages else 1
+    last_page = max(pages) if pages else 1
+    chunk_texts = "\n\n".join(
+        f"--- Page {c.page_number} ---\n{c.text}" for c in chunks
+    )
+    return (
+        f"{preamble}"
+        + _CLASSIFY_SCHEMA.format(
+            doc_type=document.doc_type.value,
+            first_page=first_page,
+            last_page=last_page,
+            full_text=chunk_texts,
+        )
+    )
+
+
 def _estimate_token_count(chunks: list[Chunk], chars_per_token: int = 4) -> int:
     """Estimate the number of tokens in the concatenated chunk text."""
     return sum(len(c.text or "") for c in chunks) // max(1, chars_per_token)
@@ -568,6 +661,36 @@ def _run_full_doc_call(
                     time.sleep(backoff_base ** (attempt + 1))
 
     raise RuntimeError(f"Full-doc extraction failed for {stage_name}: {last_error}")
+
+
+def _run_full_doc_classify_call(
+    *,
+    chunks: list[Chunk],
+    document: Document,
+    llm_cfg: dict,
+) -> tuple[str, dict, list[dict]]:
+    """Single LLM call for clause classification. Returns (model_used, response_dict, errors).
+
+    Raises RuntimeError on total failure.
+    """
+    prompt = _build_classify_prompt(chunks, document)
+    models = [llm_cfg.get("primary_model", "gpt-4o")] + list(llm_cfg.get("fallback_models", []))
+    max_retries = max(1, int(llm_cfg.get("max_retries", 3)))
+    backoff_base = max(1, int(llm_cfg.get("retry_backoff_base", 2)))
+
+    last_error: Exception | None = None
+    for model in models:
+        for attempt in range(max_retries):
+            try:
+                response = call_classify_llm(model=model, prompt=prompt)
+                logger.info("Full-doc classify succeeded using %s", model)
+                return model, response, []
+            except Exception as exc:
+                last_error = exc
+                if attempt < max_retries - 1:
+                    time.sleep(backoff_base ** (attempt + 1))
+
+    raise RuntimeError(f"Full-doc classify call failed: {last_error}")
 
 
 def _run_chunk_calls(
@@ -1080,6 +1203,160 @@ def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm
     }
 
 
+def _extract_classified_impl(
+    db: Session,
+    document: Document,
+    ob_run: ExtractionRun,
+    ri_run: ExtractionRun,
+    llm_cfg: dict,
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Combined obligation+risk extraction via clause classification."""
+    chunks = (
+        db.query(Chunk)
+        .filter(Chunk.document_id == document.id)
+        .order_by(Chunk.page_number.asc(), Chunk.char_start.asc())
+        .all()
+    )
+    entities = db.query(Entity).all()
+    aliases = _get_obligation_aliases(document.doc_type)
+
+    model_used, response, errors = _run_full_doc_classify_call(
+        chunks=chunks, document=document, llm_cfg=llm_cfg,
+    )
+
+    # Build synthetic outputs for _finish_run
+    outputs = [{"chunk_id": str(chunks[0].id) if chunks else "none", "model": model_used, "response": response}]
+
+    # --- Parse obligations ---
+    ob_candidates: list[dict[str, object]] = []
+    for entry in response.get("obligations") or []:
+        if not isinstance(entry, dict):
+            continue
+        obligation_text = str(entry.get("quote", "")).strip()
+        if not obligation_text:
+            continue
+
+        raw_obligation_type = entry.get("obligation_type")
+        if isinstance(raw_obligation_type, str):
+            normalized = raw_obligation_type.strip().lower()
+            raw_obligation_type = aliases.get(normalized, normalized)
+        obligation_type = _coerce_enum(raw_obligation_type, ObligationType, ObligationType.other)
+        modality = _coerce_enum(entry.get("modality"), Modality, Modality.unknown)
+        severity = _coerce_enum(entry.get("severity"), Severity, Severity.medium)
+        due_kind, due_date, due_rule = _parse_due_fields(entry.get("due_date"), entry.get("due_rule"))
+        responsible_entity_id = _resolve_party_entity_id(entry.get("responsible_party"), entities)
+
+        ob_candidates.append(
+            {
+                "obligation_type": obligation_type,
+                "obligation_text": obligation_text,
+                "modality": modality,
+                "responsible_entity_id": responsible_entity_id,
+                "due_kind": due_kind,
+                "due_date": due_date,
+                "due_rule": due_rule,
+                "severity": severity,
+            }
+        )
+
+    # --- Parse risks ---
+    ri_candidates: list[dict[str, object]] = []
+    for entry in response.get("risks") or []:
+        if not isinstance(entry, dict):
+            continue
+        risk_text = str(entry.get("quote", "")).strip() or str(entry.get("risk_text", "")).strip()
+        if not risk_text:
+            continue
+
+        risk_type = _coerce_enum(entry.get("risk_type"), RiskType, RiskType.unknown_risk)
+        severity = _coerce_enum(entry.get("severity"), Severity, Severity.medium)
+
+        ri_candidates.append(
+            {
+                "risk_type": risk_type,
+                "risk_text": risk_text,
+                "severity": severity,
+            }
+        )
+
+    # --- Dedupe ---
+    deduped_obs, ob_removed = _dedupe_candidates(ob_candidates, text_key="obligation_text", score_fn=_obligation_candidate_score)
+    deduped_risks, ri_removed = _dedupe_candidates(ri_candidates, text_key="risk_text", score_fn=_risk_candidate_score)
+
+    # --- Persist obligations ---
+    ob_count = 0
+    for candidate in deduped_obs:
+        record = Obligation(
+            id=uuid.uuid4(),
+            document_id=document.id,
+            obligation_type=candidate["obligation_type"],
+            obligation_text=str(candidate["obligation_text"]),
+            modality=candidate["modality"],
+            responsible_entity_id=candidate["responsible_entity_id"],
+            due_kind=candidate["due_kind"],
+            due_date=candidate["due_date"],
+            due_rule=candidate["due_rule"],
+            trigger_date=None,
+            severity=candidate["severity"],
+            status=ReviewStatus.needs_review,
+            system_confidence=0,
+            reviewer_confidence=None,
+            has_external_reference=False,
+            contradiction_flag=False,
+            extraction_run_id=ob_run.id,
+        )
+        db.add(record)
+        ob_count += 1
+
+    # --- Persist risks ---
+    ri_count = 0
+    for candidate in deduped_risks:
+        record = Risk(
+            id=uuid.uuid4(),
+            document_id=document.id,
+            risk_type=candidate["risk_type"],
+            risk_text=str(candidate["risk_text"]),
+            severity=candidate["severity"],
+            status=ReviewStatus.needs_review,
+            system_confidence=0,
+            reviewer_confidence=None,
+            has_external_reference=False,
+            contradiction_flag=False,
+            extraction_run_id=ri_run.id,
+        )
+        db.add(record)
+        ri_count += 1
+    db.commit()
+
+    # Finish both runs
+    _finish_run(db=db, run=ob_run, model_used=model_used, outputs=outputs, errors=errors, success_count=ob_count)
+    _finish_run(db=db, run=ri_run, model_used=model_used, outputs=outputs, errors=errors, success_count=ri_count)
+
+    ob_summary = {
+        "run_id": str(ob_run.id),
+        "model_used": model_used,
+        "extraction_mode": "classify",
+        "raw_obligation_count": len(ob_candidates),
+        "deduplicated_obligation_count": len(deduped_obs),
+        "dedup_removed_count": ob_removed,
+        "obligation_count": ob_count,
+        "error_count": len(errors),
+        "run_status": ob_run.status.value,
+    }
+    ri_summary = {
+        "run_id": str(ri_run.id),
+        "model_used": model_used,
+        "extraction_mode": "classify",
+        "raw_risk_count": len(ri_candidates),
+        "deduplicated_risk_count": len(deduped_risks),
+        "dedup_removed_count": ri_removed,
+        "risk_count": ri_count,
+        "error_count": len(errors),
+        "run_status": ri_run.status.value,
+    }
+    return ob_summary, ri_summary
+
+
 def _run_extraction_stage(
     *,
     document_id: str | uuid.UUID,
@@ -1136,3 +1413,77 @@ def extract_risks(document_id: str) -> dict[str, object]:
         prompt_name="extract_risks_default",
         impl=_extract_risks_impl,
     )
+
+
+def extract_obligations_and_risks(document_id: str) -> dict[str, object]:
+    """Combined obligation+risk extraction using clause classification (full-doc)
+    or separate search prompts (chunked fallback)."""
+    update_parse_status(str(document_id), ParseStatus.extraction)
+
+    db: Session = SessionLocal()
+    try:
+        doc_id = _to_uuid(document_id)
+        document = db.query(Document).filter(Document.id == doc_id).first()
+        if not document:
+            return {"document_id": str(document_id), "status": "not_found"}
+        if document.parse_status == ParseStatus.failed:
+            return {"document_id": str(document.id), "status": "skipped", "reason": "parse_failed"}
+
+        llm_cfg = settings.raw.get("llm", {})
+        chunks = (
+            db.query(Chunk)
+            .filter(Chunk.document_id == document.id)
+            .order_by(Chunk.page_number.asc(), Chunk.char_start.asc())
+            .all()
+        )
+        extraction_cfg = settings.raw.get("extraction", {})
+        use_classify = _should_use_full_doc(chunks, extraction_cfg)
+
+        if use_classify:
+            try:
+                ob_run = _start_run(
+                    db=db, document=document,
+                    stage=ExtractionStage.obligation_extraction,
+                    prompt_name="classify_obligations_default", llm_cfg=llm_cfg,
+                )
+                ri_run = _start_run(
+                    db=db, document=document,
+                    stage=ExtractionStage.risk_extraction,
+                    prompt_name="classify_risks_default", llm_cfg=llm_cfg,
+                )
+                ob_summary, ri_summary = _extract_classified_impl(db, document, ob_run, ri_run, llm_cfg)
+                return {
+                    "document_id": str(document.id),
+                    "status": "ok" if ob_summary.get("error_count", 0) == 0 and ri_summary.get("error_count", 0) == 0 else "partial",
+                    "mode": "classify",
+                    "obligations": ob_summary,
+                    "risks": ri_summary,
+                }
+            except Exception:
+                logger.warning("Classify extraction failed, falling back to chunked mode")
+                use_classify = False
+
+        # Chunked fallback — call existing impls separately
+        ob_run = _start_run(
+            db=db, document=document,
+            stage=ExtractionStage.obligation_extraction,
+            prompt_name="extract_obligations_default", llm_cfg=llm_cfg,
+        )
+        ob_summary = _extract_obligations_impl(db, document, ob_run, llm_cfg)
+
+        ri_run = _start_run(
+            db=db, document=document,
+            stage=ExtractionStage.risk_extraction,
+            prompt_name="extract_risks_default", llm_cfg=llm_cfg,
+        )
+        ri_summary = _extract_risks_impl(db, document, ri_run, llm_cfg)
+
+        return {
+            "document_id": str(document.id),
+            "status": "ok" if ob_summary.get("error_count", 0) == 0 and ri_summary.get("error_count", 0) == 0 else "partial",
+            "mode": "chunked",
+            "obligations": ob_summary,
+            "risks": ri_summary,
+        }
+    finally:
+        db.close()

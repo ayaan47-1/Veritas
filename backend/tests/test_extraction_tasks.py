@@ -868,3 +868,168 @@ def test_full_doc_falls_back_to_chunked_on_failure(monkeypatch):
     # Full-doc failed (1 call) + chunked fallback (2 calls) = 3
     assert call_count[0] == 3
     assert len(db.obligations) >= 1
+
+
+# -----------------------------------------------------------------------
+# Tests for combined classify extraction (extract_obligations_and_risks)
+# -----------------------------------------------------------------------
+
+
+def _settings_full_doc_classify():
+    return types.SimpleNamespace(raw={
+        "llm": {"primary_model": "test-model", "fallback_models": [],
+                "max_retries": 1, "retry_backoff_base": 1,
+                "chunk_selection": {"chunks_per_group": 1}},
+        "domains": {},
+        "extraction": {"mode": "full_doc"},
+    })
+
+
+def test_build_classify_prompt_contains_classification_instructions(monkeypatch):
+    monkeypatch.setattr(extract_task, "settings", types.SimpleNamespace(raw={"domains": {}}))
+    document = _make_document()
+    chunks = [
+        _make_chunk(document.id, 1, "Tenant shall pay rent monthly."),
+        _make_chunk(document.id, 2, "Landlord may terminate for cause."),
+    ]
+    prompt = extract_task._build_classify_prompt(chunks, document)
+    assert "classify" in prompt.lower()
+    assert "obligation" in prompt.lower()
+    assert "risk" in prompt.lower()
+    assert "--- Page 1 ---" in prompt
+    assert "--- Page 2 ---" in prompt
+    assert "Tenant shall pay rent monthly." in prompt
+    assert "Landlord may terminate for cause." in prompt
+
+
+def test_extract_obligations_and_risks_combined_in_full_doc_mode(monkeypatch):
+    document = _make_document()
+    chunks = [
+        _make_chunk(document.id, 1, "Contractor shall submit reports weekly."),
+        _make_chunk(document.id, 2, "Failure to comply incurs penalties."),
+    ]
+    db = FakeSession(document=document, chunks=chunks, entities=[])
+
+    classify_call_count = [0]
+
+    def _fake_classify(*, model: str, prompt: str):
+        classify_call_count[0] += 1
+        return {
+            "obligations": [
+                {
+                    "quote": "Contractor shall submit reports weekly.",
+                    "obligation_type": "submission",
+                    "modality": "shall",
+                    "severity": "medium",
+                    "due_date": None,
+                    "due_rule": "weekly",
+                    "responsible_party": None,
+                }
+            ],
+            "risks": [
+                {
+                    "quote": "Failure to comply incurs penalties.",
+                    "risk_type": "financial",
+                    "severity": "high",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(extract_task, "settings", _settings_full_doc_classify())
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_classify_llm", _fake_classify)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    result = extract_task.extract_obligations_and_risks(document.id)
+
+    assert classify_call_count[0] == 1
+    assert result["mode"] == "classify"
+    assert len(db.obligations) == 1
+    assert db.obligations[0].obligation_type == ObligationType.submission
+    assert len(db.risks) == 1
+    assert db.risks[0].risk_type == RiskType.financial
+    assert db.risks[0].severity == Severity.high
+    # Two extraction runs (one per stage)
+    assert len(db.extraction_runs) == 2
+    stages = {r.stage for r in db.extraction_runs}
+    assert ExtractionStage.obligation_extraction in stages
+    assert ExtractionStage.risk_extraction in stages
+
+
+def test_extract_obligations_and_risks_falls_back_to_chunked(monkeypatch):
+    document = _make_document()
+    chunks = [
+        _make_chunk(document.id, 1, "Tenant shall pay rent."),
+    ]
+    db = FakeSession(document=document, chunks=chunks, entities=[])
+
+    extract_call_count = [0]
+
+    def _fake_extract_llm(*, model: str, prompt: str, stage: str):
+        extract_call_count[0] += 1
+        if "obligation" in stage:
+            return [{"quote": "Tenant shall pay rent.", "obligation_type": "payment",
+                     "modality": "shall", "severity": "medium",
+                     "due_date": None, "due_rule": None, "responsible_party": None}]
+        return [{"quote": "Tenant shall pay rent.", "risk_type": "financial", "severity": "low"}]
+
+    chunked_settings = types.SimpleNamespace(raw={
+        "llm": {"primary_model": "test-model", "fallback_models": [],
+                "max_retries": 1, "retry_backoff_base": 1,
+                "chunk_selection": {"chunks_per_group": 1}},
+        "domains": {},
+        "extraction": {"mode": "chunked"},
+    })
+
+    monkeypatch.setattr(extract_task, "settings", chunked_settings)
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_extract_llm", _fake_extract_llm)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    result = extract_task.extract_obligations_and_risks(document.id)
+
+    assert result["mode"] == "chunked"
+    assert extract_call_count[0] >= 2  # separate obligation + risk calls
+    assert len(db.obligations) == 1
+    assert len(db.risks) == 1
+
+
+def test_extract_obligations_and_risks_falls_back_on_classify_failure(monkeypatch):
+    document = _make_document()
+    chunks = [
+        _make_chunk(document.id, 1, "Contractor must deliver materials."),
+    ]
+    db = FakeSession(document=document, chunks=chunks, entities=[])
+
+    classify_call_count = [0]
+    extract_call_count = [0]
+
+    def _failing_classify(*, model: str, prompt: str):
+        classify_call_count[0] += 1
+        raise RuntimeError("API error")
+
+    def _fake_extract_llm(*, model: str, prompt: str, stage: str):
+        extract_call_count[0] += 1
+        if "obligation" in stage:
+            return [{"quote": "Contractor must deliver materials.", "obligation_type": "submission",
+                     "modality": "must", "severity": "medium",
+                     "due_date": None, "due_rule": None, "responsible_party": None}]
+        return []
+
+    monkeypatch.setattr(extract_task, "settings", _settings_full_doc_classify())
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_classify_llm", _failing_classify)
+    monkeypatch.setattr(extract_task, "call_extract_llm", _fake_extract_llm)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    result = extract_task.extract_obligations_and_risks(document.id)
+
+    # Classify was attempted and failed
+    assert classify_call_count[0] >= 1
+    # Fell back to chunked
+    assert result["mode"] == "chunked"
+    assert extract_call_count[0] >= 1
+    assert len(db.obligations) == 1
