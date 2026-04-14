@@ -8,8 +8,7 @@ Usage:
 
 Stages re-run in order:
     6  extract_entities
-    7  extract_obligations
-    8  extract_risks
+    7+8 extract_obligations_and_risks (classify)
     9  verify_extractions
     9a criticize_extractions
     10 score_extractions
@@ -35,7 +34,7 @@ from backend.app.models import (
     Risk,
     RiskEvidence,
 )
-from backend.app.worker.tasks.extract import extract_entities, extract_obligations, extract_risks
+from backend.app.worker.tasks.extract import extract_entities, extract_obligations_and_risks
 from backend.app.worker.tasks.verify import verify_extractions
 from backend.app.worker.tasks.critic import criticize_extractions
 from backend.app.worker.tasks.score import score_extractions
@@ -75,11 +74,8 @@ def rerun(document_id: str) -> None:
     logger.info("Stage 6: extract_entities")
     extract_entities(document_id)
 
-    logger.info("Stage 7: extract_obligations")
-    extract_obligations(document_id)
-
-    logger.info("Stage 8: extract_risks")
-    extract_risks(document_id)
+    logger.info("Stages 7+8: extract_obligations_and_risks (classify)")
+    extract_obligations_and_risks(document_id)
 
     logger.info("Stage 9: verify_extractions")
     verify_extractions(document_id)
