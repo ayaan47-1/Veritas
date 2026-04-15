@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Implementation Reference
 
-**MVP_ARCHITECTURE.md** is the single authoritative design reference. **SPEC.md** contains rationale. This file documents what is actually implemented.
+**This file is the authoritative implementation reference.** `ARCHITECTURE_ORIGINAL_SPEC.md` is the archived original design spec (historical, not maintained). **SPEC.md** contains rationale.
 
 ## Project Overview
 
