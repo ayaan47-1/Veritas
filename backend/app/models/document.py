@@ -110,6 +110,7 @@ class Chunk(Base, UUIDPrimaryKeyMixin):
     embedding: Mapped[dict | None] = mapped_column(JSONB)
     chunk_sha256: Mapped[str] = mapped_column(String, nullable=False)
     split_reason: Mapped[SplitReason] = mapped_column(Enum(SplitReason), nullable=False)
+    section_label: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     document = relationship("Document", back_populates="chunks", primaryjoin="Document.id==Chunk.document_id")

@@ -194,6 +194,22 @@ def _make_chunk(document_id: uuid.UUID, page: int, text: str) -> Chunk:
     )
 
 
+def test_filter_agreement_chunks_excludes_non_agreement():
+    doc = _make_document()
+    c1 = _make_chunk(doc.id, 1, "Agreement clause.")
+    c1.section_label = "agreement_body"
+    c2 = _make_chunk(doc.id, 2, "Statutory disclosure.")
+    c2.section_label = "non_agreement"
+    c3 = _make_chunk(doc.id, 3, "Unlabeled chunk.")
+    c3.section_label = None
+
+    result = extract_task._filter_agreement_chunks([c1, c2, c3])
+    assert len(result) == 2
+    assert c1 in result
+    assert c2 not in result
+    assert c3 in result  # None defaults to included
+
+
 def test_get_stage_keywords_returns_domain_keywords(monkeypatch):
     monkeypatch.setattr(extract_task, "settings", types.SimpleNamespace(raw={"domains": FINANCIAL_DOMAINS}))
     keywords = extract_task._get_stage_keywords("obligation_extraction", DocumentType.loan_agreement)

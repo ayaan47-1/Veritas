@@ -498,6 +498,11 @@ def _dedupe_candidates(
     return unique_candidates, removed
 
 
+def _filter_agreement_chunks(chunks: list[Chunk]) -> list[Chunk]:
+    """Return only chunks labeled as agreement_body (or unlabeled)."""
+    return [c for c in chunks if c.section_label in (None, "agreement_body")]
+
+
 def _token_set(text: str) -> set[str]:
     """Bag-of-words tokens for MMR chunk similarity (order-independent)."""
     return set(re.findall(r"[a-z0-9]+", text.lower()))
@@ -968,12 +973,13 @@ def _extract_entities_impl(db: Session, document: Document, run: ExtractionRun, 
 
 
 def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRun, llm_cfg: dict) -> dict[str, object]:
-    chunks = (
+    all_chunks = (
         db.query(Chunk)
         .filter(Chunk.document_id == document.id)
         .order_by(Chunk.page_number.asc(), Chunk.char_start.asc())
         .all()
     )
+    chunks = _filter_agreement_chunks(all_chunks) or all_chunks
     entities = db.query(Entity).all()
 
     extraction_cfg = settings.raw.get("extraction", {})
@@ -1096,12 +1102,13 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
 
 
 def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm_cfg: dict) -> dict[str, object]:
-    chunks = (
+    all_chunks = (
         db.query(Chunk)
         .filter(Chunk.document_id == document.id)
         .order_by(Chunk.page_number.asc(), Chunk.char_start.asc())
         .all()
     )
+    chunks = _filter_agreement_chunks(all_chunks) or all_chunks
 
     extraction_cfg = settings.raw.get("extraction", {})
     use_full_doc = _should_use_full_doc(chunks, extraction_cfg)
@@ -1211,12 +1218,16 @@ def _extract_classified_impl(
     llm_cfg: dict,
 ) -> tuple[dict[str, object], dict[str, object]]:
     """Combined obligation+risk extraction via clause classification."""
-    chunks = (
+    all_chunks = (
         db.query(Chunk)
         .filter(Chunk.document_id == document.id)
         .order_by(Chunk.page_number.asc(), Chunk.char_start.asc())
         .all()
     )
+    chunks = _filter_agreement_chunks(all_chunks)
+    if all_chunks and not chunks:
+        logger.warning("All chunks filtered as non_agreement; using all chunks as fallback")
+        chunks = all_chunks
     entities = db.query(Entity).all()
     aliases = _get_obligation_aliases(document.doc_type)
 

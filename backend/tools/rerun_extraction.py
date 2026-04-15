@@ -7,6 +7,7 @@ Usage:
     python3 -m backend.tools.rerun_extraction --document-id <uuid>
 
 Stages re-run in order:
+    5b classify_chunk_sections
     6  extract_entities
     7+8 extract_obligations_and_risks (classify)
     9  verify_extractions
@@ -34,6 +35,7 @@ from backend.app.models import (
     Risk,
     RiskEvidence,
 )
+from backend.app.worker.tasks.section_classify import classify_chunk_sections
 from backend.app.worker.tasks.extract import extract_entities, extract_obligations_and_risks
 from backend.app.worker.tasks.verify import verify_extractions
 from backend.app.worker.tasks.critic import criticize_extractions
@@ -70,6 +72,9 @@ def _clear_previous_extractions(document_id: str) -> None:
 
 def rerun(document_id: str) -> None:
     _clear_previous_extractions(document_id)
+
+    logger.info("Stage 5b: classify_chunk_sections")
+    classify_chunk_sections(document_id)
 
     logger.info("Stage 6: extract_entities")
     extract_entities(document_id)

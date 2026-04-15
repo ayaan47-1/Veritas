@@ -7,6 +7,7 @@ from .tasks.parse import parse_document
 from .tasks.ocr import ocr_scanned_pages
 from .tasks.chunk import normalize_pages, chunk_pages
 from .tasks.classify import classify_document
+from .tasks.section_classify import classify_chunk_sections
 from .tasks.extract import extract_entities, extract_obligations_and_risks
 from .tasks.verify import verify_extractions
 from .tasks.critic import criticize_extractions
@@ -37,6 +38,7 @@ async def process_document(
     await step.run("3-normalize", lambda: normalize_pages(document_id))
     await step.run("4-chunk", lambda: chunk_pages(document_id))
     await step.run("5-classify", lambda: classify_document(document_id))
+    await step.run("5b-section-classify", lambda: classify_chunk_sections(document_id))
     await step.run("6-extract-entities", lambda: extract_entities(document_id))
     await step.run("7-extract-classify", lambda: extract_obligations_and_risks(document_id))
     await step.run("9-verify", lambda: verify_extractions(document_id))

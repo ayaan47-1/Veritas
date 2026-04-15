@@ -54,7 +54,7 @@ python3 -m compileall backend/app backend/alembic backend/tools -q
 python3 -m alembic -c backend/alembic.ini upgrade head
 python3 -m alembic -c backend/alembic.ini revision --autogenerate -m "description"
 python3 -m alembic -c backend/alembic.ini heads
-# Current head chain: c03dec85f67a → e1f2a3b4c5d6 → a9b8c7d6e5f4 → f3c7beac04b9 → 7c1d4e2b9a10 → b2e4f6a8c0d1 → c4d5e6f7a8b9 → d5e6f7a8b9c0 (HEAD)
+# Current head chain: c03dec85f67a → e1f2a3b4c5d6 → a9b8c7d6e5f4 → f3c7beac04b9 → 7c1d4e2b9a10 → b2e4f6a8c0d1 → c4d5e6f7a8b9 → d5e6f7a8b9c0 → e6f7a8b9c0d1 → f7a8b9c0d1e2 (HEAD)
 
 # Eval / benchmark tools (require API key env vars)
 python3 -m backend.tools.generate_ground_truth --document-id <uuid>   # AI-labels all obligations/risks
@@ -134,6 +134,7 @@ Orchestrated via Inngest durable step functions in `pipeline.py → process_docu
 | 3-normalize | `normalize_pages` | `tasks/chunk.py` |
 | 4-chunk | `chunk_pages` | `tasks/chunk.py` |
 | 5-classify | `classify_document` | `tasks/classify.py` |
+| 5b-section-classify | `classify_chunk_sections` | `tasks/section_classify.py` |
 | 6-extract-entities | `extract_entities` | `tasks/extract.py` |
 | 7-extract-obligations | `extract_obligations` | `tasks/extract.py` |
 | 8-extract-risks | `extract_risks` | `tasks/extract.py` |
@@ -224,7 +225,7 @@ Service-layer tests (`test_chunking.py`, `test_normalization.py`) — pure funct
 
 `test_llm_service.py` patches `backend.app.services.llm.litellm` (the module-level import).
 
-**Current baseline: 154 tests, all passing.**
+**Current baseline: 168 tests, all passing.**
 
 ## Non-Negotiable Rules
 
@@ -251,7 +252,7 @@ Service-layer tests (`test_chunking.py`, `test_normalization.py`) — pure funct
 
 ## Implementation Status
 
-All 13 pipeline steps implemented. All API routers implemented. Clerk JWT auth live. Current baseline: **154 passing tests** (backend pytest, 20 test files).
+All 14 pipeline steps implemented. All API routers implemented. Clerk JWT auth live. Current baseline: **168 passing tests** (backend pytest, 21 test files).
 
 Implemented frontend screens:
 - Asset list (`/`) — cards link to `/assets/[id]/documents`
