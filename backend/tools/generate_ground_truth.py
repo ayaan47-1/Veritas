@@ -55,11 +55,13 @@ RISK TYPES (use one): financial, schedule, quality, safety, compliance, contract
 
 INSTRUCTIONS:
 1. Read the entire contract text carefully.
-2. Extract only items that clearly impose a duty on a named or implied party.
-3. Extract only risk clauses that clearly expose a party to liability, penalty, or financial loss.
-4. Use verbatim quotes from the text (exact wording, not paraphrased).
-5. Assign severity using the definitions above. Be decisive.
-6. For risks, provide a short reasoning string explaining the severity assignment.
+2. Extract only items that clearly impose a duty on a named or implied party UNDER THIS SPECIFIC AGREEMENT.
+3. Extract only risk clauses that clearly expose a party to liability, penalty, or financial loss UNDER THIS SPECIFIC AGREEMENT.
+4. Do NOT extract from appended statutory disclosure sections, tenant rights summaries, regulatory notices, or government-mandated informational appendices. These sections merely restate existing law and do not create obligations between the contracting parties.
+5. Do NOT extract general statements of law, landlord-tenant ordinance summaries (e.g. RLTO), or "know your rights" sections — even if they use mandatory language like "must" or "shall."
+6. Use verbatim quotes from the text (exact wording, not paraphrased).
+7. Assign severity using the definitions above. Be decisive.
+8. For risks, provide a short reasoning string explaining the severity assignment.
 
 Return ONLY valid JSON in this exact shape — no prose before or after:
 {{
