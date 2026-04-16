@@ -76,6 +76,34 @@ CANDIDATES:
 {items}"""
 
 
+_FN_JUDGE_PROMPT = """You are an expert contract analyst acting as a judge.
+
+The items below were labeled as obligations/risks in the ground truth, but the pipeline did NOT extract them. Your job: decide whether the pipeline made a real mistake (should have caught it) or whether the ground truth shouldn't have labeled it in the first place.
+
+REAL_MISS — pipeline should have caught this. Mark it as real_miss if the item is:
+- A commitment between the parties of THIS agreement ("Lessee shall...", "Lessor agrees to...")
+- A conditional obligation or penalty/default clause from the lease body
+- A specific contractual term unique to this agreement
+
+GT_ERROR — ground truth shouldn't have labeled this. Mark it as gt_error if the item is:
+- A restatement of statutory language ("A landlord must...", "Under [Code] §...", "Illinois law requires...")
+- Content from an appended statutory disclosure, tenant rights summary, or regulatory notice
+- Boilerplate, definitions, or informational text with no party-specific duty
+- A "know your rights" or tenant-rights clause from an RLTO summary
+
+Return ONLY a JSON array with one object per candidate, in the same order:
+[
+  {{"index": 0, "verdict": "real_miss" or "gt_error", "reason": "<10-20 word explanation>"}},
+  ...
+]
+
+Document type: {doc_type}
+Category being judged: {category}
+
+CANDIDATES:
+{items}"""
+
+
 def _format_candidates(items: list[dict], quote_key: str) -> str:
     """Format candidates as numbered list."""
     lines = []
@@ -91,11 +119,14 @@ def _judge_batch(
     category: str,
     doc_type: str,
     model: str,
+    *,
+    prompt_template: str = _JUDGE_PROMPT,
+    default_verdict: str = "reject",
 ) -> list[dict]:
     """Send a batch of candidates to the LLM judge. Returns list of verdicts."""
     if not items:
         return []
-    prompt = _JUDGE_PROMPT.format(
+    prompt = prompt_template.format(
         doc_type=doc_type,
         category=category,
         items=_format_candidates(items, quote_key),
@@ -109,10 +140,10 @@ def _judge_batch(
         idx = v.get("index")
         if isinstance(idx, int) and 0 <= idx < len(items):
             by_index[idx] = v
-    # Default to reject if the judge forgot an item
+    # Default verdict if the judge forgot an item
     return [
         by_index.get(
-            i, {"index": i, "verdict": "reject", "reason": "missing judgment"}
+            i, {"index": i, "verdict": default_verdict, "reason": "missing judgment"}
         )
         for i in range(len(items))
     ]
@@ -123,28 +154,37 @@ def _chunked(items: list[Any], size: int) -> list[list[Any]]:
 
 
 def _audit_category(
-    false_positives: list[dict],
+    items: list[dict],
     quote_key: str,
     category: str,
     doc_type: str,
     model: str,
     batch_size: int,
+    *,
+    prompt_template: str = _JUDGE_PROMPT,
+    default_verdict: str = "reject",
+    pass_label: str = "FP",
 ) -> list[dict]:
-    """Run the judge on all false positives, batched. Returns list of enriched dicts."""
-    if not false_positives:
+    """Run the judge on items, batched. Returns list of enriched dicts."""
+    if not items:
         return []
 
     results: list[dict] = []
-    batches = _chunked(false_positives, batch_size)
+    batches = _chunked(items, batch_size)
     for bi, batch in enumerate(batches):
         logger.info(
-            "Judging %s batch %d/%d (%d items)", category, bi + 1, len(batches), len(batch)
+            "Judging %s %s batch %d/%d (%d items)",
+            category, pass_label, bi + 1, len(batches), len(batch),
         )
-        verdicts = _judge_batch(batch, quote_key, category, doc_type, model)
+        verdicts = _judge_batch(
+            batch, quote_key, category, doc_type, model,
+            prompt_template=prompt_template,
+            default_verdict=default_verdict,
+        )
         for item, verdict in zip(batch, verdicts):
             enriched = {
                 **item,
-                "verdict": verdict.get("verdict", "reject"),
+                "verdict": verdict.get("verdict", default_verdict),
                 "reason": verdict.get("reason", ""),
             }
             results.append(enriched)
@@ -155,17 +195,24 @@ def _adjusted_metrics(
     tp: int,
     accepted_fp: int,
     rejected_fp: int,
-    fn: int,
+    real_miss_fn: int,
+    gt_error_fn: int,
 ) -> dict[str, float]:
-    """Compute adjusted precision/recall/F1 treating accepted FPs as TPs."""
+    """Compute adjusted precision/recall/F1 after both FP and FN audit passes.
+
+    - Accepted FPs are treated as TPs (GT missed them but they are legitimate).
+    - GT-error FNs are dropped from the denominator (they shouldn't have been labeled).
+    - Real-miss FNs remain as true misses.
+    """
     new_tp = tp + accepted_fp
     precision = new_tp / (new_tp + rejected_fp) if (new_tp + rejected_fp) > 0 else 0.0
-    recall = new_tp / (new_tp + fn) if (new_tp + fn) > 0 else 0.0
+    recall = new_tp / (new_tp + real_miss_fn) if (new_tp + real_miss_fn) > 0 else 0.0
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
     return {
         "precision": round(precision, 3),
         "recall": round(recall, 3),
         "f1": round(f1, 3),
+        "gt_errors_dropped": gt_error_fn,
     }
 
 
@@ -207,30 +254,53 @@ def audit(
     )
 
     logger.info(
-        "Found %d obligation FPs and %d risk FPs to audit",
-        len(ob_fp), len(ri_fp),
+        "Auditing: obligations %d FP / %d FN, risks %d FP / %d FN",
+        len(ob_fp), len(ob_fn), len(ri_fp), len(ri_fn),
     )
 
-    # Run judge on false positives
-    ob_judged = _audit_category(ob_fp, "quote", "obligations", doc_type, model, batch_size)
-    ri_judged = _audit_category(ri_fp, "quote", "risks", doc_type, model, batch_size)
+    # Pass 1: Judge false positives (accept = legitimate, reject = real FP)
+    ob_fp_judged = _audit_category(
+        ob_fp, "quote", "obligations", doc_type, model, batch_size,
+        prompt_template=_JUDGE_PROMPT, default_verdict="reject", pass_label="FP",
+    )
+    ri_fp_judged = _audit_category(
+        ri_fp, "quote", "risks", doc_type, model, batch_size,
+        prompt_template=_JUDGE_PROMPT, default_verdict="reject", pass_label="FP",
+    )
 
-    ob_accepted = [x for x in ob_judged if x.get("verdict") == "accept"]
-    ob_rejected = [x for x in ob_judged if x.get("verdict") != "accept"]
-    ri_accepted = [x for x in ri_judged if x.get("verdict") == "accept"]
-    ri_rejected = [x for x in ri_judged if x.get("verdict") != "accept"]
+    ob_accepted = [x for x in ob_fp_judged if x.get("verdict") == "accept"]
+    ob_rejected = [x for x in ob_fp_judged if x.get("verdict") != "accept"]
+    ri_accepted = [x for x in ri_fp_judged if x.get("verdict") == "accept"]
+    ri_rejected = [x for x in ri_fp_judged if x.get("verdict") != "accept"]
+
+    # Pass 2: Judge false negatives (real_miss = pipeline bug, gt_error = GT shouldn't have labeled)
+    ob_fn_judged = _audit_category(
+        ob_fn, "quote", "obligations", doc_type, model, batch_size,
+        prompt_template=_FN_JUDGE_PROMPT, default_verdict="real_miss", pass_label="FN",
+    )
+    ri_fn_judged = _audit_category(
+        ri_fn, "quote", "risks", doc_type, model, batch_size,
+        prompt_template=_FN_JUDGE_PROMPT, default_verdict="real_miss", pass_label="FN",
+    )
+
+    ob_real_miss = [x for x in ob_fn_judged if x.get("verdict") == "real_miss"]
+    ob_gt_error = [x for x in ob_fn_judged if x.get("verdict") == "gt_error"]
+    ri_real_miss = [x for x in ri_fn_judged if x.get("verdict") == "real_miss"]
+    ri_gt_error = [x for x in ri_fn_judged if x.get("verdict") == "gt_error"]
 
     ob_adj = _adjusted_metrics(
         tp=len(ob_pairs),
         accepted_fp=len(ob_accepted),
         rejected_fp=len(ob_rejected),
-        fn=len(ob_fn),
+        real_miss_fn=len(ob_real_miss),
+        gt_error_fn=len(ob_gt_error),
     )
     ri_adj = _adjusted_metrics(
         tp=len(ri_pairs),
         accepted_fp=len(ri_accepted),
         rejected_fp=len(ri_rejected),
-        fn=len(ri_fn),
+        real_miss_fn=len(ri_real_miss),
+        gt_error_fn=len(ri_gt_error),
     )
 
     # ── Print report ────────────────────────────────────────────
@@ -247,6 +317,8 @@ def audit(
     print(f"    → judge accepted  : {len(ob_accepted)}  (legitimate, GT missed)")
     print(f"    → judge rejected  : {len(ob_rejected)}  (real false positives)")
     print(f"  False negatives     : {len(ob_fn)}")
+    print(f"    → real miss       : {len(ob_real_miss)}  (pipeline should have caught)")
+    print(f"    → GT error        : {len(ob_gt_error)}  (GT shouldn't have labeled)")
     print()
     print(f"  ORIGINAL  precision : {_pct(len(ob_pairs) / len(pl_obs)) if pl_obs else 'N/A'}")
     print(f"  ADJUSTED  precision : {_pct(ob_adj['precision'])}")
@@ -261,6 +333,8 @@ def audit(
     print(f"    → judge accepted  : {len(ri_accepted)}  (legitimate, GT missed)")
     print(f"    → judge rejected  : {len(ri_rejected)}  (real false positives)")
     print(f"  False negatives     : {len(ri_fn)}")
+    print(f"    → real miss       : {len(ri_real_miss)}  (pipeline should have caught)")
+    print(f"    → GT error        : {len(ri_gt_error)}  (GT shouldn't have labeled)")
     print()
     print(f"  ORIGINAL  precision : {_pct(len(ri_pairs) / len(pl_ris)) if pl_ris else 'N/A'}")
     print(f"  ADJUSTED  precision : {_pct(ri_adj['precision'])}")
@@ -291,6 +365,28 @@ def audit(
             print(f"  ... and {len(ri_rejected) - 20} more")
         print()
 
+    if ob_real_miss:
+        print("REAL MISSED OBLIGATIONS (pipeline bug):")
+        for item in ob_real_miss[:20]:
+            quote = (item.get("quote") or "")[:100]
+            reason = item.get("reason", "")
+            print(f"  - {quote}")
+            print(f"      reason: {reason}")
+        if len(ob_real_miss) > 20:
+            print(f"  ... and {len(ob_real_miss) - 20} more")
+        print()
+
+    if ri_real_miss:
+        print("REAL MISSED RISKS (pipeline bug):")
+        for item in ri_real_miss[:20]:
+            quote = (item.get("quote") or "")[:100]
+            reason = item.get("reason", "")
+            print(f"  - {quote}")
+            print(f"      reason: {reason}")
+        if len(ri_real_miss) > 20:
+            print(f"  ... and {len(ri_real_miss) - 20} more")
+        print()
+
     return {
         "document_id": document_id,
         "model": model,
@@ -299,7 +395,9 @@ def audit(
             "fp_total": len(ob_fp),
             "fp_accepted": len(ob_accepted),
             "fp_rejected": len(ob_rejected),
-            "fn": len(ob_fn),
+            "fn_total": len(ob_fn),
+            "fn_real_miss": len(ob_real_miss),
+            "fn_gt_error": len(ob_gt_error),
             "adjusted": ob_adj,
         },
         "risks": {
@@ -307,7 +405,9 @@ def audit(
             "fp_total": len(ri_fp),
             "fp_accepted": len(ri_accepted),
             "fp_rejected": len(ri_rejected),
-            "fn": len(ri_fn),
+            "fn_total": len(ri_fn),
+            "fn_real_miss": len(ri_real_miss),
+            "fn_gt_error": len(ri_gt_error),
             "adjusted": ri_adj,
         },
     }
