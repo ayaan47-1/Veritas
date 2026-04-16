@@ -60,6 +60,7 @@ python3 -m alembic -c backend/alembic.ini heads
 python3 -m backend.tools.generate_ground_truth --document-id <uuid>   # AI-labels all obligations/risks
 python3 -m backend.tools.evaluate_pipeline --document-id <uuid>       # precision/recall vs ground truth
 python3 -m backend.tools.rerun_extraction --document-id <uuid>        # re-run stages 6–10b on existing doc
+python3 -m backend.tools.audit_extractions --document-id <uuid>       # LLM-as-judge: adjusted precision for GT under-labeling
 python3 -m backend.tools.rerun_ocr --document-id <uuid>               # re-run OCR on scanned pages only
 ```
 
