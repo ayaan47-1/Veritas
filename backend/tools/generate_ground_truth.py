@@ -53,15 +53,27 @@ OBLIGATION TYPES (use one): payment, submission, notification, compliance, inspe
 
 RISK TYPES (use one): financial, schedule, quality, safety, compliance, contractual
 
+SCOPE — WHAT TO INCLUDE:
+- Clauses using "Lessee shall...", "Lessor shall...", "Tenant agrees to...", "Landlord will..." that represent commitments BETWEEN THE PARTIES of this specific agreement
+- Conditional obligations ("If X occurs, Tenant shall...")
+- Obligations in exhibits, schedules, and addenda that are incorporated by reference into the agreement
+- Payment obligations, maintenance obligations, notice requirements specific to this agreement
+- Risk/penalty clauses that arise from breach of THIS agreement
+
+SCOPE — WHAT TO EXCLUDE:
+- Any clause that restates statutory language: "A landlord must...", "A tenant must...", "Utility companies are required...", "Under [Code] §..."
+- Content in sections titled "RLTO Summary", "Tenant Rights", "Lead Paint Disclosure", "Required Disclosures", "Summary of Law", "Know Your Rights", or similar statutory/regulatory notices
+- Restatements of law that would apply regardless of what this specific contract says
+- Government-mandated informational appendices and disclosure forms
+
+THE TEST: "Would this obligation/risk exist if the parties had signed a DIFFERENT contract?" If yes → it is statutory, EXCLUDE it. If no → it is contractual, INCLUDE it.
+
 INSTRUCTIONS:
 1. Read the entire contract text carefully.
-2. Extract only items that clearly impose a duty on a named or implied party UNDER THIS SPECIFIC AGREEMENT.
-3. Extract only risk clauses that clearly expose a party to liability, penalty, or financial loss UNDER THIS SPECIFIC AGREEMENT.
-4. Do NOT extract from appended statutory disclosure sections, tenant rights summaries, regulatory notices, or government-mandated informational appendices. These sections merely restate existing law and do not create obligations between the contracting parties.
-5. Do NOT extract general statements of law, landlord-tenant ordinance summaries (e.g. RLTO), or "know your rights" sections — even if they use mandatory language like "must" or "shall."
-6. Use verbatim quotes from the text (exact wording, not paraphrased).
-7. Assign severity using the definitions above. Be decisive.
-8. For risks, provide a short reasoning string explaining the severity assignment.
+2. Apply the scope rules above strictly. Only extract contractual items, never statutory restatements.
+3. Use verbatim quotes from the text (exact wording, not paraphrased).
+4. Assign severity using the definitions above. Be decisive.
+5. For risks, provide a short reasoning string explaining the severity assignment.
 
 Return ONLY valid JSON in this exact shape — no prose before or after:
 {{

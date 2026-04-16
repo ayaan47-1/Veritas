@@ -222,6 +222,7 @@ def _pipeline_risks(db, doc_id: uuid.UUID) -> list[dict]:
             "status": row.status.value if row.status else "",
         }
         for row in rows
+        if not row.contradiction_flag  # exclude auto-generated contradiction risks
     ]
 
 
