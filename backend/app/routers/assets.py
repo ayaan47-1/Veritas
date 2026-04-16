@@ -73,9 +73,7 @@ def list_assets(
     db: Session = Depends(get_db),
 ):
     query = db.query(Asset)
-    if current_user.role == UserRole.admin:
-        query = query.filter(Asset.created_by == current_user.id)
-    else:
+    if current_user.role != UserRole.admin:
         query = query.join(UserAssetAssignment, UserAssetAssignment.asset_id == Asset.id).filter(
             UserAssetAssignment.user_id == current_user.id
         )

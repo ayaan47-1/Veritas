@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from ..auth.deps import get_current_user, require_asset_scope, require_reviewer_or_admin, require_risk_access
 from ..database import get_db
 from ..models import (
-    Asset,
     AuditAction,
     AuditLog,
     Document,
@@ -23,7 +22,6 @@ from ..models import (
     RiskType,
     Severity,
     User,
-    UserRole,
 )
 
 router = APIRouter(prefix="/risks", tags=["risks"])
@@ -99,10 +97,6 @@ def list_risks(
         query = query.filter(Risk.document_id == document_id)
     if asset_id is not None:
         query = query.join(Document, Risk.document_id == Document.id).filter(Document.asset_id == asset_id)
-    elif current_user.role == UserRole.admin:
-        query = query.join(Document, Risk.document_id == Document.id).join(
-            Asset, Document.asset_id == Asset.id
-        ).filter(Asset.created_by == current_user.id)
 
     total = query.count()
     rows = query.order_by(Risk.created_at.desc()).offset(cursor).limit(limit + 1).all()
