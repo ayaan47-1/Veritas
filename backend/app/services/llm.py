@@ -40,6 +40,8 @@ def llm_completion(model: str, prompt: str, *, prefer_json_object: bool = True) 
     if prefer_json_object:
         kwargs["response_format"] = {"type": "json_object"}
 
+    kwargs["timeout"] = 120  # seconds; prevents indefinite hangs on provider outages
+
     response = litellm.completion(**kwargs)
     content = response.choices[0].message.content
     normalized = _normalize_content(content)

@@ -93,7 +93,7 @@ class FakeQuery:
             return list(self._session.users)
         if self._model is auth_deps.UserAssetAssignment:
             return list(self._session.assignments)
-        if self._model is auth_deps.Asset:
+        if self._model is Asset:
             return list(self._session.assets)
         if self._model is auth_deps.Obligation:
             return list(self._session.obligations)
@@ -103,8 +103,6 @@ class FakeQuery:
             return list(self._session.obligations)
         if self._model is obligations_router.Document:
             return list(self._session.documents)
-        if self._model is obligations_router.Asset:
-            return list(self._session.assets)
         if self._model is obligations_router.ObligationEvidence:
             return []
         if self._model is obligations_router.ObligationReview:
@@ -115,8 +113,6 @@ class FakeQuery:
             return list(self._session.risks)
         if self._model is risks_router.Document:
             return list(self._session.documents)
-        if self._model is risks_router.Asset:
-            return list(self._session.assets)
         if self._model is risks_router.RiskEvidence:
             return []
         if self._model is assets_router.Asset:
@@ -368,7 +364,7 @@ def test_config_endpoints_require_admin_role():
     assert admin_response.status_code == 200
 
 
-def test_admin_sees_only_own_assets():
+def test_admin_sees_all_assets():
     admin_a = _make_user(UserRole.admin)
     admin_b = _make_user(UserRole.admin)
     asset_a = _make_asset(created_by=admin_a.id)
@@ -386,18 +382,10 @@ def test_admin_sees_only_own_assets():
     items = response.json()["items"]
     asset_ids = [item["id"] for item in items]
     assert str(asset_a.id) in asset_ids
-    assert str(asset_b.id) not in asset_ids
-
-    app.dependency_overrides[auth_deps.get_current_user] = lambda: admin_b
-    response = client.get("/assets")
-    assert response.status_code == 200
-    items = response.json()["items"]
-    asset_ids = [item["id"] for item in items]
     assert str(asset_b.id) in asset_ids
-    assert str(asset_a.id) not in asset_ids
 
 
-def test_admin_cannot_access_another_admins_asset():
+def test_admin_can_access_any_asset():
     admin_a = _make_user(UserRole.admin)
     admin_b = _make_user(UserRole.admin)
     asset_a = _make_asset(created_by=admin_a.id)
@@ -414,20 +402,19 @@ def test_admin_cannot_access_another_admins_asset():
 
     app.dependency_overrides[auth_deps.get_current_user] = lambda: admin_b
     response = client.get(f"/assets/{asset_a.id}")
-    assert response.status_code == 403
+    assert response.status_code == 200
 
 
-def test_admin_obligations_scoped_to_own_assets():
+def test_admin_sees_all_obligations():
     admin_a = _make_user(UserRole.admin)
-    admin_b = _make_user(UserRole.admin)
     asset_a = _make_asset(created_by=admin_a.id)
-    asset_b = _make_asset(created_by=admin_b.id)
+    asset_b = _make_asset(created_by=admin_a.id)
     doc_a = _make_document(asset_id=asset_a.id, uploaded_by=admin_a.id)
-    doc_b = _make_document(asset_id=asset_b.id, uploaded_by=admin_b.id)
+    doc_b = _make_document(asset_id=asset_b.id, uploaded_by=admin_a.id)
     obligation_a = _make_obligation(doc_a.id)
     obligation_b = _make_obligation(doc_b.id)
     db = FakeSession(
-        users=[admin_a, admin_b],
+        users=[admin_a],
         assets=[asset_a, asset_b],
         documents=[doc_a, doc_b],
         obligations=[obligation_a, obligation_b],
@@ -441,20 +428,19 @@ def test_admin_obligations_scoped_to_own_assets():
     items = response.json()["items"]
     obligation_ids = [item["id"] for item in items]
     assert str(obligation_a.id) in obligation_ids
-    assert str(obligation_b.id) not in obligation_ids
+    assert str(obligation_b.id) in obligation_ids
 
 
-def test_admin_risks_scoped_to_own_assets():
+def test_admin_sees_all_risks():
     admin_a = _make_user(UserRole.admin)
-    admin_b = _make_user(UserRole.admin)
     asset_a = _make_asset(created_by=admin_a.id)
-    asset_b = _make_asset(created_by=admin_b.id)
+    asset_b = _make_asset(created_by=admin_a.id)
     doc_a = _make_document(asset_id=asset_a.id, uploaded_by=admin_a.id)
-    doc_b = _make_document(asset_id=asset_b.id, uploaded_by=admin_b.id)
+    doc_b = _make_document(asset_id=asset_b.id, uploaded_by=admin_a.id)
     risk_a = _make_risk(doc_a.id)
     risk_b = _make_risk(doc_b.id)
     db = FakeSession(
-        users=[admin_a, admin_b],
+        users=[admin_a],
         assets=[asset_a, asset_b],
         documents=[doc_a, doc_b],
         risks=[risk_a, risk_b],
@@ -468,4 +454,4 @@ def test_admin_risks_scoped_to_own_assets():
     items = response.json()["items"]
     risk_ids = [item["id"] for item in items]
     assert str(risk_a.id) in risk_ids
-    assert str(risk_b.id) not in risk_ids
+    assert str(risk_b.id) in risk_ids

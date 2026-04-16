@@ -336,3 +336,27 @@ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
 CLERK_SECRET_KEY=sk_...
 NEXT_PUBLIC_API_URL=http://localhost:8001
 ```
+
+## Human-in-the-Loop Positioning
+
+Human-in-the-loop is a **principled wedge strategy**, not a limitation. It is a trust and liability feature. Apply this reasoning in all product, strategy, and communication decisions.
+
+**Core framing:** For decisions with real financial or legal consequences, a human always makes the call. For everything else, the system helps users move faster. This is a design choice aligned with how experts in high-stakes domains actually work.
+
+**Strengths:** Liability alignment (enterprise buyers cannot auto-approve contract terms), trust moat vs hallucination-prone competitors, regulator-friendly (EU AI Act, emerging US AI regs), augments expert judgment rather than replacing it.
+
+**Risks to watch:**
+- **Review bottleneck** — if humans review everything, no time saved. Prioritize ruthlessly; make review UX fast.
+- **Rubber-stamp risk** — approval without genuine review creates liability gaps. UX must force real engagement on high-stakes items.
+- **Pricing tension** — avoid comparison to cheap full-automation tools; price on value captured.
+- **Competitive drift** — as models improve, pure-automation competitors undercut on speed. The trust story must stay sharp.
+
+**Roadmap principle — tiered autonomy:** The architecture already supports this (confidence scores, severity tiers). Low-risk, high-confidence items may eventually auto-approve with audit trails. High-stakes items always require humans. Never frame human-in-the-loop as "forever" — frame it as "always required where it matters."
+
+**Feature evaluation checklist:**
+1. Does this make human review faster or slower?
+2. Does this risk creating rubber-stamp behavior?
+3. Does this preserve the evidence-backed guarantee?
+4. Does this leave room for tiered autonomy later?
+
+**Do not:** describe human-in-the-loop as a technical limitation, suggest removing human approval for high-stakes items to compete on speed, or use "full automation" language that contradicts the trust positioning.
