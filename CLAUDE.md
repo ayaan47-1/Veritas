@@ -61,6 +61,8 @@ python3 -m backend.tools.generate_ground_truth --document-id <uuid>   # AI-label
 python3 -m backend.tools.evaluate_pipeline --document-id <uuid>       # precision/recall vs ground truth
 python3 -m backend.tools.rerun_extraction --document-id <uuid>        # re-run stages 6–10b on existing doc
 python3 -m backend.tools.audit_extractions --document-id <uuid>       # LLM-as-judge: adjusted precision for GT under-labeling
+python3 -m backend.tools.verify_section_filter --document-id <uuid> --agreement-pages "5-13,43"   # audit section classifier vs known page ranges
+python3 -m backend.tools.curate_ground_truth --document-id <uuid> --statutory-pages "1-4,14-42"   # auto-filter GT by page ranges + statutory text
 python3 -m backend.tools.rerun_ocr --document-id <uuid>               # re-run OCR on scanned pages only
 ```
 
