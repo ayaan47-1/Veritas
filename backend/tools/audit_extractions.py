@@ -91,6 +91,12 @@ GT_ERROR — ground truth shouldn't have labeled this. Mark it as gt_error if th
 - Boilerplate, definitions, or informational text with no party-specific duty
 - A "know your rights" or tenant-rights clause from an RLTO summary
 
+BORDERLINE — the item is arguably contractual but appeared in a 
+disclosure/statutory section. Mark as borderline if:
+- The language is contractual ("agrees to", "shall") but sits inside 
+  an appended disclosure or statutory summary section
+- The obligation is real but the section filter reasonably excluded it
+
 Return ONLY a JSON array with one object per candidate, in the same order:
 [
   {{"index": 0, "verdict": "real_miss" or "gt_error", "reason": "<10-20 word explanation>"}},
