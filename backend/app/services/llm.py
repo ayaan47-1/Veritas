@@ -30,7 +30,13 @@ def _normalize_content(content: Any) -> str:
     return str(content).strip()
 
 
-def llm_completion(model: str, prompt: str, *, prefer_json_object: bool = True) -> str:
+def llm_completion(
+    model: str,
+    prompt: str,
+    *,
+    prefer_json_object: bool = True,
+    timeout: int = 120,
+) -> str:
     """Call LiteLLM and return the raw content string."""
     kwargs = {
         "model": model,
@@ -40,7 +46,7 @@ def llm_completion(model: str, prompt: str, *, prefer_json_object: bool = True) 
     if prefer_json_object:
         kwargs["response_format"] = {"type": "json_object"}
 
-    kwargs["timeout"] = 120  # seconds; prevents indefinite hangs on provider outages
+    kwargs["timeout"] = timeout  # seconds; prevents indefinite hangs on provider outages
 
     response = litellm.completion(**kwargs)
     content = response.choices[0].message.content
