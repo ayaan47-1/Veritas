@@ -40,7 +40,7 @@ llm:
     chunks_per_group: 5
 
 extraction:
-  mode: auto          # auto | full_doc | chunked
+  mode: chunked       # auto | full_doc | chunked — forced chunked to avoid Cloudflare 524 timeouts
   full_doc_token_threshold: 150000
   chars_per_token: 4
 
