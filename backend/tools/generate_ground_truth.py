@@ -136,7 +136,8 @@ def generate(document_id: str, output_dir: Path, model: str = "claude-sonnet-4-6
     )
 
     logger.info("Calling %s for ground truth labeling…", model)
-    raw = llm_completion(model, prompt, prefer_json_object=True)
+    # Large documents can take >2min; bump timeout to 5min for GT generation.
+    raw = llm_completion(model, prompt, prefer_json_object=True, timeout=300)
     data = parse_json_dict(raw)
 
     obligations = data.get("obligations") or []
