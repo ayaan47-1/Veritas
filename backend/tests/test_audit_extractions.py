@@ -24,17 +24,30 @@ def test_format_candidates_numbers_items():
 
 
 def test_adjusted_metrics_accepts_fp_as_tp():
-    # Original: 10 TP, 20 FP, 5 FN → precision = 10/30 = 0.333
-    # If judge accepts 15 of 20 FP → adjusted TP = 25, rejected FP = 5
-    # Adjusted precision = 25/30 = 0.833, recall = 25/30 = 0.833
-    result = audit._adjusted_metrics(tp=10, accepted_fp=15, rejected_fp=5, fn=5)
+    # 10 TP, 20 FP (15 accepted, 5 rejected), 5 real_miss, 0 gt_error
+    # Adjusted TP = 25, precision = 25/30 = 0.833, recall = 25/30 = 0.833
+    result = audit._adjusted_metrics(
+        tp=10, accepted_fp=15, rejected_fp=5, real_miss_fn=5, gt_error_fn=0,
+    )
     assert result["precision"] == 0.833
     assert result["recall"] == 0.833
     assert result["f1"] == 0.833
 
 
+def test_adjusted_metrics_drops_gt_errors_from_recall():
+    # 10 TP, 0 accepted_fp, 0 rejected_fp, 2 real_miss, 3 gt_error
+    # Recall = 10 / (10 + 2) = 0.833 (gt_errors dropped)
+    result = audit._adjusted_metrics(
+        tp=10, accepted_fp=0, rejected_fp=0, real_miss_fn=2, gt_error_fn=3,
+    )
+    assert result["recall"] == 0.833
+    assert result["gt_errors_dropped"] == 3
+
+
 def test_adjusted_metrics_zero_division_safe():
-    result = audit._adjusted_metrics(tp=0, accepted_fp=0, rejected_fp=0, fn=0)
+    result = audit._adjusted_metrics(
+        tp=0, accepted_fp=0, rejected_fp=0, real_miss_fn=0, gt_error_fn=0,
+    )
     assert result["precision"] == 0.0
     assert result["recall"] == 0.0
     assert result["f1"] == 0.0
@@ -59,3 +72,20 @@ def test_judge_batch_defaults_missing_verdicts_to_reject(monkeypatch):
     assert result[0]["verdict"] == "reject"  # default for missing
     assert result[1]["verdict"] == "accept"
     assert result[2]["verdict"] == "reject"
+
+
+def test_judge_batch_fn_mode_defaults_to_real_miss(monkeypatch):
+    items = [{"quote": "Missed A"}, {"quote": "Missed B"}]
+    # Judge only classifies index 0 as gt_error; index 1 is missing
+    fake_response = [{"index": 0, "verdict": "gt_error", "reason": "statutory"}]
+
+    monkeypatch.setattr(audit, "llm_completion", lambda *a, **k: "stub")
+    monkeypatch.setattr(audit, "parse_json_list", lambda _raw: fake_response)
+
+    result = audit._judge_batch(
+        items, "quote", "obligations", "lease", "model",
+        prompt_template=audit._FN_JUDGE_PROMPT,
+        default_verdict="real_miss",
+    )
+    assert result[0]["verdict"] == "gt_error"
+    assert result[1]["verdict"] == "real_miss"  # default for missing
