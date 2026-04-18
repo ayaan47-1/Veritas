@@ -44,11 +44,6 @@ extraction:
   full_doc_token_threshold: 150000
   chars_per_token: 4
 
-section_classification:
-  # A/B test: Sonnet 4.6 on stage 5b to compare against Haiku 4.5 baseline.
-  # Default (if unset) is claude-haiku-4-5-20251001 via section_classify.py.
-  model: "claude-sonnet-4-6"
-
 ocr:
   min_raw_text_chars: 50
 
