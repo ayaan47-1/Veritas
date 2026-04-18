@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-VeritasLayer is an AI Operational Intelligence Layer that ingests PDFs, runs a deterministic 13-stage pipeline, and produces evidence-traceable obligations and risk alerts for operational assets (buildings, construction projects). **Core guarantee: no claim without verifiable evidence** (page number, exact quote, char offsets). Not a chatbot — a truth layer.
+VeritasLayer is an AI Operational Intelligence Layer that ingests PDFs, runs a deterministic 14-stage pipeline, and produces evidence-traceable obligations and risk alerts for operational assets (buildings, construction projects). **Core guarantee: no claim without verifiable evidence** (page number, exact quote, char offsets). Not a chatbot — a truth layer.
 
 ## Tech Stack
 
@@ -126,7 +126,7 @@ Clerk auth env vars: `CLERK_JWKS_URL`, `CLERK_ISSUER`. Required for JWT verifica
 
 ## Architecture
 
-### Pipeline (13 steps, `backend/app/worker/`)
+### Pipeline (14 steps, `backend/app/worker/`)
 
 Orchestrated via Inngest durable step functions in `pipeline.py → process_document`. Each step is a `step.run()` call — Inngest retries failed steps individually. Dashboard at `localhost:8288`.
 
@@ -210,11 +210,15 @@ Key relationships:
 
 ### Eval Harness (`backend/tools/`)
 
-Three CLI scripts for pipeline quality measurement:
+CLI scripts for pipeline quality measurement:
 
 - `generate_ground_truth.py` — reads ALL chunks (no MMR limit), calls Claude Sonnet for exhaustive labeling, writes `backend/data/benchmarks/{doc_id}/ground_truth.json`
 - `evaluate_pipeline.py` — Jaccard quote matching (threshold 0.6) between ground truth and pipeline output; reports precision, recall, F1, severity exact match, adjacent agreement, Spearman ρ
+- `audit_extractions.py` — LLM-as-judge that re-classifies pipeline FPs and GT FNs; reports adjusted precision/recall for GT under-labeling
+- `curate_ground_truth.py` — auto-filter GT by page ranges + statutory text (e.g., strip statutory disclosures from eval scope)
+- `verify_section_filter.py` — audit section classifier output vs known agreement page ranges
 - `rerun_extraction.py` — re-runs stages 6–10b on an existing document (useful after config changes without re-uploading)
+- `rerun_ocr.py` — re-run OCR on scanned pages only
 
 Ground truth JSON lives at `backend/data/benchmarks/` — no DB tables needed.
 
@@ -228,7 +232,7 @@ Service-layer tests (`test_chunking.py`, `test_normalization.py`) — pure funct
 
 `test_llm_service.py` patches `backend.app.services.llm.litellm` (the module-level import).
 
-**Current baseline: 168 tests, all passing.**
+**Current baseline: 198 tests, all passing.**
 
 ## Non-Negotiable Rules
 
@@ -255,7 +259,7 @@ Service-layer tests (`test_chunking.py`, `test_normalization.py`) — pure funct
 
 ## Implementation Status
 
-All 14 pipeline steps implemented. All API routers implemented. Clerk JWT auth live. Current baseline: **168 passing tests** (backend pytest, 21 test files).
+All 14 pipeline steps implemented. All API routers implemented. Clerk JWT auth live. Current baseline: **198 passing tests** (backend pytest).
 
 Implemented frontend screens:
 - Asset list (`/`) — cards link to `/assets/[id]/documents`
@@ -299,7 +303,7 @@ For server components, use `auth()` from `@clerk/nextjs/server` instead.
 Accepts `itemType: "obligation" | "risk"` and `initialValues`. When `decision === "edit_approve"`, shows editable fields: `text` (textarea), `severity` (dropdown), and `risk_type` (dropdown, risks only). Only changed fields sent as `field_edits`.
 
 ### Key API shapes
-See `MVP_ARCHITECTURE.md §6.2` for full request/response shapes.
+See `ARCHITECTURE_ORIGINAL_SPEC.md §6.2` for full request/response shapes (archived historical spec).
 
 - **Pagination:** all lists return `{ items, next_cursor, total }`. `total` is the full count matching the query filters (not just the current page). Pass `cursor=0` to start.
 - **Status colors:** `needs_review` → yellow, `confirmed` → green, `rejected` → red/muted
