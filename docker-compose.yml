@@ -24,6 +24,8 @@ services:
       - DATA_DIR=/data
     volumes:
       - file_data:/data
+      # Bind-mount ground truth + eval artifacts so they survive image rebuilds
+      - ./backend/data/benchmarks:/app/backend/data/benchmarks
     depends_on:
       - postgres
 

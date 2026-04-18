@@ -18,3 +18,6 @@ __pycache__/
 # Local runtime/storage artifacts
 data/
 *.log
+
+# Graphify skill output
+graphify-out/
