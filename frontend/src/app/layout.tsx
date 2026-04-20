@@ -4,6 +4,7 @@ import { Instrument_Serif, Jost, JetBrains_Mono } from "next/font/google";
 import { ClerkProvider, SignInButton, SignUpButton, UserButton, Show } from "@clerk/nextjs";
 import NavLinks from "@/components/NavLinks";
 import NotificationBell from "@/components/NotificationBell";
+import SignedOutBanner from "@/components/SignedOutBanner";
 import ThemeToggle from "@/components/ThemeToggle";
 import "./globals.css";
 
@@ -67,11 +68,7 @@ export default function RootLayout({
               </div>
             </div>
           </header>
-          <Show when="signed-out">
-            <div className="border-b border-accent-subtle bg-accent-subtle px-6 py-2 text-center text-sm font-medium text-accent">
-              Sign in to load assets and review queues.
-            </div>
-          </Show>
+          <SignedOutBanner />
           {children}
         </ClerkProvider>
       </body>

@@ -1,15 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useAuth } from "@clerk/nextjs";
+import { Show, useAuth } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
 
+import LandingHero from "@/components/LandingHero";
 import { createAsset, deleteAsset, getAssets, getCurrentUser } from "@/lib/api";
 import type { Asset, CurrentUser } from "@/lib/types";
 
 type AssetCard = Asset & { pendingReviews: number };
 
 export default function Home() {
+  return (
+    <>
+      <Show when="signed-out">
+        <LandingHero />
+      </Show>
+      <Show when="signed-in">
+        <AssetReviewQueue />
+      </Show>
+    </>
+  );
+}
+
+function AssetReviewQueue() {
   const { getToken } = useAuth();
   const [assets, setAssets] = useState<AssetCard[]>([]);
   const [isLoading, setIsLoading] = useState(true);

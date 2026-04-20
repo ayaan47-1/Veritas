@@ -123,6 +123,7 @@ Clerk auth env vars: `CLERK_JWKS_URL`, `CLERK_ISSUER`. Required for JWT verifica
 - `rescoring.enabled` — toggle LLM severity re-scoring stage (default: true).
 - `rescoring.model` — model for stage 10b (default: `claude-haiku-4-5-20251001`).
 - `scoring.weights` / `scoring.penalties` — additive scoring signals, all config-driven.
+- `extraction.mode` — `chunked` (default) splits extraction across many small LLM calls. `full_doc` sends the whole document in one call. **Keep on `chunked`**: full-document mode on large leases hits Anthropic's Cloudflare gateway 100s timeout (524 errors) before the LLM finishes. `auto` switches based on `full_doc_token_threshold`.
 
 ## Architecture
 
@@ -139,9 +140,9 @@ Orchestrated via Inngest durable step functions in `pipeline.py → process_docu
 | 5-classify | `classify_document` | `tasks/classify.py` |
 | 5b-section-classify | `classify_chunk_sections` | `tasks/section_classify.py` |
 | 6-extract-entities | `extract_entities` | `tasks/extract.py` |
-| 7-extract-obligations | `extract_obligations` | `tasks/extract.py` |
-| 8-extract-risks | `extract_risks` | `tasks/extract.py` |
+| 7-extract-classify | `extract_obligations_and_risks` | `tasks/extract.py` |
 | 9-verify | `verify_extractions` | `tasks/verify.py` |
+| 9a-critic | `criticize_extractions` | `tasks/critic.py` |
 | 10-score | `score_extractions` | `tasks/score.py` |
 | 10b-rescore | `rescore_with_llm` | `tasks/rescore.py` |
 | 11-persist | `persist_final_status` | `tasks/notify.py` |
@@ -219,6 +220,7 @@ CLI scripts for pipeline quality measurement:
 - `verify_section_filter.py` — audit section classifier output vs known agreement page ranges
 - `rerun_extraction.py` — re-runs stages 6–10b on an existing document (useful after config changes without re-uploading)
 - `rerun_ocr.py` — re-run OCR on scanned pages only
+- `snapshot_benchmark_state.py` — freezes the current pipeline output for a document into a benchmark snapshot for before/after comparisons
 
 Ground truth JSON lives at `backend/data/benchmarks/` — no DB tables needed.
 

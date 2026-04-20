@@ -30,7 +30,7 @@ async def process_document(
     ctx: inngest.Context,
     step: inngest.Step,
 ) -> None:
-    """Orchestrator — runs the full 11-stage pipeline with per-step tracking."""
+    """Orchestrator — runs the full 14-stage pipeline with per-step tracking."""
     document_id: str = ctx.event.data["document_id"]
 
     await step.run("1-parse", lambda: parse_document(document_id))

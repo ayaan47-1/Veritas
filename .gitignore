@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+veritaslayer_business_plan.md
 
 # Python cache/build artifacts
 __pycache__/
@@ -21,3 +22,4 @@ data/
 
 # Graphify skill output
 graphify-out/
+
