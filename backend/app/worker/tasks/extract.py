@@ -567,6 +567,82 @@ def _filter_agreement_chunks(chunks: list[Chunk]) -> list[Chunk]:
     return [c for c in chunks if c.section_label in (None, "agreement_body")]
 
 
+def _section_filter_settings(extraction_cfg: dict) -> tuple[float, bool]:
+    """Return (bypass_ratio_threshold, retry_on_zero_results)."""
+    section_filter_cfg = extraction_cfg.get("section_filter", {}) if isinstance(extraction_cfg, dict) else {}
+
+    threshold_raw = section_filter_cfg.get("max_non_agreement_ratio_before_bypass", 0.9)
+    try:
+        threshold = float(threshold_raw)
+    except (TypeError, ValueError):
+        threshold = 0.9
+    threshold = max(0.0, min(1.0, threshold))
+
+    retry_on_zero_results = bool(section_filter_cfg.get("retry_all_chunks_on_zero_results", True))
+    return threshold, retry_on_zero_results
+
+
+def _select_chunks_with_section_filter_guardrails(
+    *,
+    all_chunks: list[Chunk],
+    max_non_agreement_ratio_before_bypass: float,
+    force_all_chunks: bool = False,
+    stage_name: str = "unknown_stage",
+) -> tuple[list[Chunk], dict[str, object], bool, str]:
+    """Apply section-filter guardrails and return chunk selection metadata.
+
+    Returns:
+      (selected_chunks, section_filter_stats, section_filter_bypassed, chunk_source)
+    """
+    filtered_chunks = _filter_agreement_chunks(all_chunks)
+
+    total_chunks = len(all_chunks)
+    agreement_chunks = len(filtered_chunks)
+    non_agreement_chunks = max(0, total_chunks - agreement_chunks)
+    non_agreement_ratio = (non_agreement_chunks / total_chunks) if total_chunks else 0.0
+
+    section_filter_stats = {
+        "total": total_chunks,
+        "agreement": agreement_chunks,
+        "non_agreement": non_agreement_chunks,
+        "non_agreement_ratio": round(non_agreement_ratio, 4),
+    }
+
+    if force_all_chunks:
+        if total_chunks:
+            logger.warning(
+                "[%s] Forcing all-chunks extraction override (%d chunks)",
+                stage_name,
+                total_chunks,
+            )
+        return all_chunks, section_filter_stats, bool(total_chunks), "all_chunks_fallback"
+
+    if total_chunks and not filtered_chunks:
+        logger.warning(
+            "[%s] All chunks filtered as non_agreement; using all chunks fallback (%d chunks)",
+            stage_name,
+            total_chunks,
+        )
+        return all_chunks, section_filter_stats, True, "all_chunks_fallback"
+
+    if (
+        total_chunks
+        and filtered_chunks
+        and non_agreement_ratio >= max_non_agreement_ratio_before_bypass
+    ):
+        logger.warning(
+            "[%s] High non_agreement ratio %.3f (threshold %.3f); using all chunks fallback (%d/%d non_agreement)",
+            stage_name,
+            non_agreement_ratio,
+            max_non_agreement_ratio_before_bypass,
+            non_agreement_chunks,
+            total_chunks,
+        )
+        return all_chunks, section_filter_stats, True, "all_chunks_fallback"
+
+    return filtered_chunks, section_filter_stats, False, "filtered"
+
+
 def _token_set(text: str) -> set[str]:
     """Bag-of-words tokens for MMR chunk similarity (order-independent)."""
     return set(re.findall(r"[a-z0-9]+", text.lower()))
@@ -1036,17 +1112,29 @@ def _extract_entities_impl(db: Session, document: Document, run: ExtractionRun, 
     }
 
 
-def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRun, llm_cfg: dict) -> dict[str, object]:
+def _extract_obligations_impl(
+    db: Session,
+    document: Document,
+    run: ExtractionRun,
+    llm_cfg: dict,
+    *,
+    force_all_chunks: bool = False,
+) -> dict[str, object]:
     all_chunks = (
         db.query(Chunk)
         .filter(Chunk.document_id == document.id)
         .order_by(Chunk.page_number.asc(), Chunk.char_start.asc())
         .all()
     )
-    chunks = _filter_agreement_chunks(all_chunks) or all_chunks
-    entities = db.query(Entity).all()
-
     extraction_cfg = settings.raw.get("extraction", {})
+    max_non_agreement_ratio_before_bypass, _ = _section_filter_settings(extraction_cfg)
+    chunks, section_filter_stats, section_filter_bypassed, chunk_source = _select_chunks_with_section_filter_guardrails(
+        all_chunks=all_chunks,
+        max_non_agreement_ratio_before_bypass=max_non_agreement_ratio_before_bypass,
+        force_all_chunks=force_all_chunks,
+        stage_name="obligation_extraction",
+    )
+    entities = db.query(Entity).all()
     use_full_doc = _should_use_full_doc(chunks, extraction_cfg)
 
     if use_full_doc:
@@ -1162,19 +1250,35 @@ def _extract_obligations_impl(db: Session, document: Document, run: ExtractionRu
         "obligation_count": success_count,
         "error_count": len(errors),
         "run_status": run.status.value,
+        "section_filter_stats": section_filter_stats,
+        "section_filter_bypassed": section_filter_bypassed,
+        "chunk_source": chunk_source,
     }
 
 
-def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm_cfg: dict) -> dict[str, object]:
+def _extract_risks_impl(
+    db: Session,
+    document: Document,
+    run: ExtractionRun,
+    llm_cfg: dict,
+    *,
+    force_all_chunks: bool = False,
+) -> dict[str, object]:
     all_chunks = (
         db.query(Chunk)
         .filter(Chunk.document_id == document.id)
         .order_by(Chunk.page_number.asc(), Chunk.char_start.asc())
         .all()
     )
-    chunks = _filter_agreement_chunks(all_chunks) or all_chunks
 
     extraction_cfg = settings.raw.get("extraction", {})
+    max_non_agreement_ratio_before_bypass, _ = _section_filter_settings(extraction_cfg)
+    chunks, section_filter_stats, section_filter_bypassed, chunk_source = _select_chunks_with_section_filter_guardrails(
+        all_chunks=all_chunks,
+        max_non_agreement_ratio_before_bypass=max_non_agreement_ratio_before_bypass,
+        force_all_chunks=force_all_chunks,
+        stage_name="risk_extraction",
+    )
     use_full_doc = _should_use_full_doc(chunks, extraction_cfg)
 
     if use_full_doc:
@@ -1271,6 +1375,9 @@ def _extract_risks_impl(db: Session, document: Document, run: ExtractionRun, llm
         "risk_count": success_count,
         "error_count": len(errors),
         "run_status": run.status.value,
+        "section_filter_stats": section_filter_stats,
+        "section_filter_bypassed": section_filter_bypassed,
+        "chunk_source": chunk_source,
     }
 
 
@@ -1280,6 +1387,8 @@ def _extract_classified_impl(
     ob_run: ExtractionRun,
     ri_run: ExtractionRun,
     llm_cfg: dict,
+    *,
+    force_all_chunks: bool = False,
 ) -> tuple[dict[str, object], dict[str, object]]:
     """Combined obligation+risk extraction via clause classification."""
     all_chunks = (
@@ -1288,10 +1397,14 @@ def _extract_classified_impl(
         .order_by(Chunk.page_number.asc(), Chunk.char_start.asc())
         .all()
     )
-    chunks = _filter_agreement_chunks(all_chunks)
-    if all_chunks and not chunks:
-        logger.warning("All chunks filtered as non_agreement; using all chunks as fallback")
-        chunks = all_chunks
+    extraction_cfg = settings.raw.get("extraction", {})
+    max_non_agreement_ratio_before_bypass, _ = _section_filter_settings(extraction_cfg)
+    chunks, section_filter_stats, section_filter_bypassed, chunk_source = _select_chunks_with_section_filter_guardrails(
+        all_chunks=all_chunks,
+        max_non_agreement_ratio_before_bypass=max_non_agreement_ratio_before_bypass,
+        force_all_chunks=force_all_chunks,
+        stage_name="classify_extraction",
+    )
     entities = db.query(Entity).all()
     aliases = _get_obligation_aliases(document.doc_type)
 
@@ -1417,6 +1530,9 @@ def _extract_classified_impl(
         "obligation_count": ob_count,
         "error_count": len(errors),
         "run_status": ob_run.status.value,
+        "section_filter_stats": section_filter_stats,
+        "section_filter_bypassed": section_filter_bypassed,
+        "chunk_source": chunk_source,
     }
     ri_summary = {
         "run_id": str(ri_run.id),
@@ -1428,6 +1544,9 @@ def _extract_classified_impl(
         "risk_count": ri_count,
         "error_count": len(errors),
         "run_status": ri_run.status.value,
+        "section_filter_stats": section_filter_stats,
+        "section_filter_bypassed": section_filter_bypassed,
+        "chunk_source": chunk_source,
     }
     return ob_summary, ri_summary
 
@@ -1514,51 +1633,110 @@ def extract_obligations_and_risks(document_id: str) -> dict[str, object]:
         extraction_cfg = settings.raw.get("extraction", {})
         use_classify = _should_use_full_doc(chunks, extraction_cfg)
 
-        if use_classify:
-            try:
-                ob_run = _start_run(
-                    db=db, document=document,
-                    stage=ExtractionStage.obligation_extraction,
-                    prompt_name="classify_obligations_default", llm_cfg=llm_cfg,
-                )
-                ri_run = _start_run(
-                    db=db, document=document,
-                    stage=ExtractionStage.risk_extraction,
-                    prompt_name="classify_risks_default", llm_cfg=llm_cfg,
-                )
-                ob_summary, ri_summary = _extract_classified_impl(db, document, ob_run, ri_run, llm_cfg)
-                return {
-                    "document_id": str(document.id),
-                    "status": "ok" if ob_summary.get("error_count", 0) == 0 and ri_summary.get("error_count", 0) == 0 else "partial",
-                    "mode": "classify",
-                    "obligations": ob_summary,
-                    "risks": ri_summary,
-                }
-            except Exception:
-                logger.warning("Classify extraction failed, falling back to chunked mode")
-                use_classify = False
+        _, retry_all_chunks_on_zero_results = _section_filter_settings(extraction_cfg)
 
-        # Chunked fallback — call existing impls separately
-        ob_run = _start_run(
-            db=db, document=document,
-            stage=ExtractionStage.obligation_extraction,
-            prompt_name="extract_obligations_default", llm_cfg=llm_cfg,
-        )
-        ob_summary = _extract_obligations_impl(db, document, ob_run, llm_cfg)
+        def _run_once(*, prefer_classify: bool, force_all_chunks: bool) -> tuple[str, dict[str, object], dict[str, object]]:
+            if prefer_classify:
+                try:
+                    ob_run = _start_run(
+                        db=db, document=document,
+                        stage=ExtractionStage.obligation_extraction,
+                        prompt_name="classify_obligations_default", llm_cfg=llm_cfg,
+                    )
+                    ri_run = _start_run(
+                        db=db, document=document,
+                        stage=ExtractionStage.risk_extraction,
+                        prompt_name="classify_risks_default", llm_cfg=llm_cfg,
+                    )
+                    ob_summary_local, ri_summary_local = _extract_classified_impl(
+                        db,
+                        document,
+                        ob_run,
+                        ri_run,
+                        llm_cfg,
+                        force_all_chunks=force_all_chunks,
+                    )
+                    return "classify", ob_summary_local, ri_summary_local
+                except Exception:
+                    logger.warning("Classify extraction failed, falling back to chunked mode")
 
-        ri_run = _start_run(
-            db=db, document=document,
-            stage=ExtractionStage.risk_extraction,
-            prompt_name="extract_risks_default", llm_cfg=llm_cfg,
+            ob_run = _start_run(
+                db=db, document=document,
+                stage=ExtractionStage.obligation_extraction,
+                prompt_name="extract_obligations_default", llm_cfg=llm_cfg,
+            )
+            ob_summary_local = _extract_obligations_impl(
+                db,
+                document,
+                ob_run,
+                llm_cfg,
+                force_all_chunks=force_all_chunks,
+            )
+
+            ri_run = _start_run(
+                db=db, document=document,
+                stage=ExtractionStage.risk_extraction,
+                prompt_name="extract_risks_default", llm_cfg=llm_cfg,
+            )
+            ri_summary_local = _extract_risks_impl(
+                db,
+                document,
+                ri_run,
+                llm_cfg,
+                force_all_chunks=force_all_chunks,
+            )
+            return "chunked", ob_summary_local, ri_summary_local
+
+        mode, ob_summary, ri_summary = _run_once(prefer_classify=use_classify, force_all_chunks=False)
+        initial_counts = {
+            "obligations": int(ob_summary.get("obligation_count", 0) or 0),
+            "risks": int(ri_summary.get("risk_count", 0) or 0),
+        }
+
+        zero_result_retry_attempted = False
+        zero_result_retry_succeeded = False
+
+        should_retry_with_all_chunks = (
+            retry_all_chunks_on_zero_results
+            and initial_counts["obligations"] == 0
+            and initial_counts["risks"] == 0
+            and ob_summary.get("chunk_source") == "filtered"
+            and ri_summary.get("chunk_source") == "filtered"
         )
-        ri_summary = _extract_risks_impl(db, document, ri_run, llm_cfg)
+
+        if should_retry_with_all_chunks:
+            zero_result_retry_attempted = True
+            logger.warning(
+                "Zero-result extraction after section-filtered pass for %s; retrying once with all chunks",
+                str(document.id)[:8],
+            )
+            mode, ob_summary, ri_summary = _run_once(
+                prefer_classify=(mode == "classify"),
+                force_all_chunks=True,
+            )
+            final_retry_counts = {
+                "obligations": int(ob_summary.get("obligation_count", 0) or 0),
+                "risks": int(ri_summary.get("risk_count", 0) or 0),
+            }
+            zero_result_retry_succeeded = (
+                final_retry_counts["obligations"] > 0 or final_retry_counts["risks"] > 0
+            )
+
+        final_counts = {
+            "obligations": int(ob_summary.get("obligation_count", 0) or 0),
+            "risks": int(ri_summary.get("risk_count", 0) or 0),
+        }
 
         return {
             "document_id": str(document.id),
             "status": "ok" if ob_summary.get("error_count", 0) == 0 and ri_summary.get("error_count", 0) == 0 else "partial",
-            "mode": "chunked",
+            "mode": mode,
             "obligations": ob_summary,
             "risks": ri_summary,
+            "zero_result_retry_attempted": zero_result_retry_attempted,
+            "zero_result_retry_succeeded": zero_result_retry_succeeded,
+            "initial_counts": initial_counts,
+            "final_counts": final_counts,
         }
     finally:
         db.close()

@@ -43,6 +43,11 @@ extraction:
   mode: chunked       # auto | full_doc | chunked — forced chunked to avoid Cloudflare 524 timeouts
   full_doc_token_threshold: 150000
   chars_per_token: 4
+  section_filter:
+    # If non_agreement chunks dominate, bypass stage-5b filtering for this extraction pass.
+    max_non_agreement_ratio_before_bypass: 0.9
+    # If filtered pass returns zero obligations and zero risks, retry once with all chunks.
+    retry_all_chunks_on_zero_results: true
 
 ocr:
   min_raw_text_chars: 50

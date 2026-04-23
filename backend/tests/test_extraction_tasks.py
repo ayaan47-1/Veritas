@@ -210,6 +210,69 @@ def test_filter_agreement_chunks_excludes_non_agreement():
     assert c3 in result  # None defaults to included
 
 
+def test_section_filter_guardrails_bypass_on_high_non_agreement_ratio():
+    doc = _make_document()
+    chunks = []
+    for page in range(1, 11):
+        chunk = _make_chunk(doc.id, page, f"Chunk {page}")
+        chunk.section_label = "agreement_body" if page == 1 else "non_agreement"
+        chunks.append(chunk)
+
+    selected, stats, bypassed, chunk_source = extract_task._select_chunks_with_section_filter_guardrails(
+        all_chunks=chunks,
+        max_non_agreement_ratio_before_bypass=0.9,
+        stage_name="test_stage",
+    )
+
+    assert bypassed is True
+    assert chunk_source == "all_chunks_fallback"
+    assert selected == chunks
+    assert stats["total"] == 10
+    assert stats["agreement"] == 1
+    assert stats["non_agreement"] == 9
+    assert stats["non_agreement_ratio"] == 0.9
+
+
+def test_section_filter_guardrails_uses_filtered_when_ratio_below_threshold():
+    doc = _make_document()
+    c1 = _make_chunk(doc.id, 1, "Agreement A")
+    c1.section_label = "agreement_body"
+    c2 = _make_chunk(doc.id, 2, "Agreement B")
+    c2.section_label = None
+    c3 = _make_chunk(doc.id, 3, "Disclosure")
+    c3.section_label = "non_agreement"
+
+    selected, stats, bypassed, chunk_source = extract_task._select_chunks_with_section_filter_guardrails(
+        all_chunks=[c1, c2, c3],
+        max_non_agreement_ratio_before_bypass=0.9,
+        stage_name="test_stage",
+    )
+
+    assert bypassed is False
+    assert chunk_source == "filtered"
+    assert selected == [c1, c2]
+    assert stats["non_agreement_ratio"] == 0.3333
+
+
+def test_section_filter_guardrails_falls_back_when_filtered_is_empty():
+    doc = _make_document()
+    c1 = _make_chunk(doc.id, 1, "Disclosure A")
+    c1.section_label = "non_agreement"
+    c2 = _make_chunk(doc.id, 2, "Disclosure B")
+    c2.section_label = "non_agreement"
+
+    selected, stats, bypassed, chunk_source = extract_task._select_chunks_with_section_filter_guardrails(
+        all_chunks=[c1, c2],
+        max_non_agreement_ratio_before_bypass=0.9,
+        stage_name="test_stage",
+    )
+
+    assert bypassed is True
+    assert chunk_source == "all_chunks_fallback"
+    assert selected == [c1, c2]
+    assert stats["non_agreement_ratio"] == 1.0
+
+
 def test_get_stage_keywords_returns_domain_keywords(monkeypatch):
     monkeypatch.setattr(extract_task, "settings", types.SimpleNamespace(raw={"domains": FINANCIAL_DOMAINS}))
     keywords = extract_task._get_stage_keywords("obligation_extraction", DocumentType.loan_agreement)
@@ -961,6 +1024,13 @@ def test_extract_obligations_and_risks_combined_in_full_doc_mode(monkeypatch):
 
     assert classify_call_count[0] == 1
     assert result["mode"] == "classify"
+    assert result["zero_result_retry_attempted"] is False
+    assert result["zero_result_retry_succeeded"] is False
+    assert result["initial_counts"] == {"obligations": 1, "risks": 1}
+    assert result["final_counts"] == {"obligations": 1, "risks": 1}
+    assert "section_filter_stats" in result["obligations"]
+    assert "section_filter_bypassed" in result["obligations"]
+    assert result["obligations"]["chunk_source"] in {"filtered", "all_chunks_fallback"}
     assert len(db.obligations) == 1
     assert db.obligations[0].obligation_type == ObligationType.submission
     assert len(db.risks) == 1
@@ -1049,3 +1119,164 @@ def test_extract_obligations_and_risks_falls_back_on_classify_failure(monkeypatc
     assert result["mode"] == "chunked"
     assert extract_call_count[0] >= 1
     assert len(db.obligations) == 1
+
+
+def test_extract_obligations_and_risks_retries_once_with_all_chunks_on_zero_results(monkeypatch):
+    document = _make_document()
+    c1 = _make_chunk(document.id, 1, "General introduction text.")
+    c1.section_label = "agreement_body"
+    c2 = _make_chunk(document.id, 2, "Tenant must pay fee and late penalty.")
+    c2.section_label = "non_agreement"
+    db = FakeSession(document=document, chunks=[c1, c2], entities=[])
+
+    def _fake_extract_llm(*, model: str, prompt: str, stage: str):
+        if "must pay fee" not in prompt.lower():
+            return []
+        if "obligation" in stage:
+            return [{
+                "quote": "Tenant must pay fee.",
+                "obligation_type": "payment",
+                "modality": "must",
+                "severity": "medium",
+                "due_date": None,
+                "due_rule": None,
+                "responsible_party": None,
+            }]
+        return [{
+            "quote": "Late penalty applies.",
+            "risk_type": "financial",
+            "severity": "high",
+        }]
+
+    fake_settings = types.SimpleNamespace(raw={
+        "llm": {
+            "primary_model": "test-model",
+            "fallback_models": [],
+            "max_retries": 1,
+            "retry_backoff_base": 1,
+            "chunk_selection": {"chunks_per_group": 1},
+        },
+        "domains": {},
+        "extraction": {
+            "mode": "chunked",
+            "section_filter": {
+                "max_non_agreement_ratio_before_bypass": 0.95,
+                "retry_all_chunks_on_zero_results": True,
+            },
+        },
+    })
+
+    monkeypatch.setattr(extract_task, "settings", fake_settings)
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_extract_llm", _fake_extract_llm)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    result = extract_task.extract_obligations_and_risks(document.id)
+
+    assert result["mode"] == "chunked"
+    assert result["zero_result_retry_attempted"] is True
+    assert result["zero_result_retry_succeeded"] is True
+    assert result["initial_counts"] == {"obligations": 0, "risks": 0}
+    assert result["final_counts"] == {"obligations": 1, "risks": 1}
+    assert len(db.obligations) == 1
+    assert len(db.risks) == 1
+    # Initial pass + retry pass => two runs per stage.
+    assert len(db.extraction_runs) == 4
+
+
+def test_extract_obligations_and_risks_skips_retry_when_either_count_nonzero(monkeypatch):
+    document = _make_document()
+    c1 = _make_chunk(document.id, 1, "Tenant must pay fee.")
+    c1.section_label = "agreement_body"
+    c2 = _make_chunk(document.id, 2, "Late penalty language.")
+    c2.section_label = "non_agreement"
+    db = FakeSession(document=document, chunks=[c1, c2], entities=[])
+
+    def _fake_extract_llm(*, model: str, prompt: str, stage: str):
+        if "obligation" in stage and "must pay fee" in prompt.lower():
+            return [{
+                "quote": "Tenant must pay fee.",
+                "obligation_type": "payment",
+                "modality": "must",
+                "severity": "medium",
+                "due_date": None,
+                "due_rule": None,
+                "responsible_party": None,
+            }]
+        return []
+
+    fake_settings = types.SimpleNamespace(raw={
+        "llm": {
+            "primary_model": "test-model",
+            "fallback_models": [],
+            "max_retries": 1,
+            "retry_backoff_base": 1,
+            "chunk_selection": {"chunks_per_group": 1},
+        },
+        "domains": {},
+        "extraction": {
+            "mode": "chunked",
+            "section_filter": {
+                "max_non_agreement_ratio_before_bypass": 0.95,
+                "retry_all_chunks_on_zero_results": True,
+            },
+        },
+    })
+
+    monkeypatch.setattr(extract_task, "settings", fake_settings)
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_extract_llm", _fake_extract_llm)
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    result = extract_task.extract_obligations_and_risks(document.id)
+
+    assert result["zero_result_retry_attempted"] is False
+    assert result["zero_result_retry_succeeded"] is False
+    assert result["initial_counts"] == {"obligations": 1, "risks": 0}
+    assert result["final_counts"] == {"obligations": 1, "risks": 0}
+    assert len(db.extraction_runs) == 2
+
+
+def test_extract_obligations_and_risks_skips_retry_when_first_pass_used_all_chunks(monkeypatch):
+    document = _make_document()
+    c1 = _make_chunk(document.id, 1, "Disclosure text A.")
+    c1.section_label = "non_agreement"
+    c2 = _make_chunk(document.id, 2, "Disclosure text B.")
+    c2.section_label = "non_agreement"
+    db = FakeSession(document=document, chunks=[c1, c2], entities=[])
+
+    fake_settings = types.SimpleNamespace(raw={
+        "llm": {
+            "primary_model": "test-model",
+            "fallback_models": [],
+            "max_retries": 1,
+            "retry_backoff_base": 1,
+            "chunk_selection": {"chunks_per_group": 1},
+        },
+        "domains": {},
+        "extraction": {
+            "mode": "chunked",
+            "section_filter": {
+                "max_non_agreement_ratio_before_bypass": 0.95,
+                "retry_all_chunks_on_zero_results": True,
+            },
+        },
+    })
+
+    monkeypatch.setattr(extract_task, "settings", fake_settings)
+    monkeypatch.setattr(extract_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(extract_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(extract_task, "call_extract_llm", lambda **_kwargs: [])
+    monkeypatch.setattr(extract_task.time, "sleep", lambda *_a, **_k: None)
+
+    result = extract_task.extract_obligations_and_risks(document.id)
+
+    assert result["obligations"]["chunk_source"] == "all_chunks_fallback"
+    assert result["risks"]["chunk_source"] == "all_chunks_fallback"
+    assert result["zero_result_retry_attempted"] is False
+    assert result["zero_result_retry_succeeded"] is False
+    assert result["initial_counts"] == {"obligations": 0, "risks": 0}
+    assert result["final_counts"] == {"obligations": 0, "risks": 0}
+    assert len(db.extraction_runs) == 2
