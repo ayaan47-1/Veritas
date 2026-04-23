@@ -31,7 +31,7 @@ def main() -> None:
         if doc is None:
             print(f"  NOT FOUND: {doc_id}")
             return
-        for attr in ("id", "filename", "sha256", "parse_status", "doc_type", "page_count", "uploaded_at", "uploaded_by", "file_path"):
+        for attr in ("id", "source_name", "sha256", "parse_status", "doc_type", "total_pages", "scanned_page_count", "uploaded_at", "uploaded_by", "file_path", "processed_file_path", "notes"):
             print(f"  {attr}: {getattr(doc, attr, '<missing>')}")
 
         file_path = getattr(doc, "file_path", None)
@@ -45,8 +45,23 @@ def main() -> None:
         if pages:
             avg_raw = db.query(func.avg(func.length(DocumentPage.raw_text))).filter(DocumentPage.document_id == doc_id).scalar()
             avg_norm = db.query(func.avg(func.length(DocumentPage.normalized_text))).filter(DocumentPage.document_id == doc_id).scalar()
-            ocr_count = db.query(func.count(DocumentPage.id)).filter(DocumentPage.document_id == doc_id, DocumentPage.needs_ocr.is_(True)).scalar()
-            print(f"  avg_raw_len: {avg_raw}  avg_normalized_len: {avg_norm}  needs_ocr_pages: {ocr_count}")
+            by_status = (
+                db.query(DocumentPage.processing_status, func.count(DocumentPage.id))
+                .filter(DocumentPage.document_id == doc_id)
+                .group_by(DocumentPage.processing_status)
+                .all()
+            )
+            by_source = (
+                db.query(DocumentPage.text_source, func.count(DocumentPage.id))
+                .filter(DocumentPage.document_id == doc_id)
+                .group_by(DocumentPage.text_source)
+                .all()
+            )
+            print(f"  avg_raw_len: {avg_raw}  avg_normalized_len: {avg_norm}")
+            for status, count in by_status:
+                print(f"  processing_status {status!r}: {count}")
+            for source, count in by_source:
+                print(f"  text_source {source!r}: {count}")
 
         print()
         chunks_total = db.query(func.count(Chunk.id)).filter(Chunk.document_id == doc_id).scalar()
