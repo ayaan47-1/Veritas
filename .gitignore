@@ -23,3 +23,6 @@ data/
 # Graphify skill output
 graphify-out/
 
+# Claude Code worktrees
+.claude/worktrees/
+
