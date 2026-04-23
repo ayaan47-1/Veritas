@@ -39,17 +39,21 @@ def main() -> None:
         runs = (
             db.query(ExtractionRun)
             .filter(ExtractionRun.document_id == doc)
-            .order_by(ExtractionRun.created_at.desc())
+            .order_by(ExtractionRun.started_at.desc())
             .limit(12)
             .all()
         )
         for r in runs:
-            meta = getattr(r, "run_metadata", None) or getattr(r, "metadata_json", None) or {}
-            if hasattr(meta, "copy"):
-                meta_str = json.dumps(meta, default=str)[:300]
-            else:
-                meta_str = str(meta)[:300]
-            print(f"{r.stage} | {r.status} | meta={meta_str}")
+            raw = r.raw_llm_output or {}
+            cfg = r.config_snapshot or {}
+            interesting = {
+                k: v
+                for k, v in {**(cfg if isinstance(cfg, dict) else {}), **(raw if isinstance(raw, dict) else {})}.items()
+                if any(token in k for token in ("section_filter", "zero_result", "chunk_source", "bypassed", "counts"))
+            }
+            meta_str = json.dumps(interesting, default=str)[:400] if interesting else "{}"
+            err = (r.error or "")[:200]
+            print(f"{r.stage} | {r.status} | started={r.started_at} | meta={meta_str} | err={err}")
     finally:
         db.close()
 
