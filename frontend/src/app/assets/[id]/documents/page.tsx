@@ -178,6 +178,12 @@ export default function AssetDocumentsPage() {
               Assets
             </Link>
             <Link
+              href={`/assets/${assetId}/upload`}
+              className="rounded-full border border-border px-3 py-1.5 text-sm font-medium text-text-primary transition-colors hover:border-border-strong"
+            >
+              Bulk upload
+            </Link>
+            <Link
               href={`/obligations?asset_id=${assetId}`}
               className="rounded-full bg-brand px-3 py-1.5 text-sm font-medium text-bg"
             >
