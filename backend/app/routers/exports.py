@@ -336,3 +336,189 @@ def _row_for_risk(row: _RiskRow) -> list[str]:
         _iso_or_empty(last.created_at if last else None),
         row.reviewer_email or "",
     ]
+
+
+def _csv_lines(columns: list[str], rows: Iterable[list[str]]) -> Iterator[str]:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(columns)
+    yield buffer.getvalue()
+    buffer.seek(0)
+    buffer.truncate()
+    for row in rows:
+        writer.writerow(row)
+        yield buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate()
+
+
+def _xlsx_bytes(
+    columns: list[str],
+    rows: Iterable[list[str]],
+    sheet_name: str,
+    severity_column_index: int,
+) -> bytes:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = sheet_name
+    sheet.append(columns)
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    sheet.freeze_panes = "A2"
+
+    widths = {
+        "id": 38,
+        "asset_name": 24,
+        "document_filename": 30,
+        "obligation_type": 16,
+        "risk_type": 16,
+        "text": 60,
+        "severity": 12,
+        "system_confidence": 12,
+        "llm_quality_confidence": 14,
+        "status": 14,
+        "deadline": 14,
+        "evidence_quote": 60,
+        "evidence_page_number": 10,
+        "evidence_char_start": 12,
+        "evidence_char_end": 12,
+        "created_at": 24,
+        "last_reviewed_at": 24,
+        "reviewer_email": 28,
+    }
+    for idx, column_name in enumerate(columns, start=1):
+        sheet.column_dimensions[sheet.cell(row=1, column=idx).column_letter].width = widths.get(column_name, 18)
+
+    severity_column_excel_index = severity_column_index + 1  # 1-based
+    for row in rows:
+        sheet.append(row)
+        sev_value = row[severity_column_index]
+        hex_fill = _SEVERITY_FILL_HEX.get(sev_value)
+        if hex_fill:
+            cell = sheet.cell(row=sheet.max_row, column=severity_column_excel_index)
+            cell.fill = PatternFill(start_color=hex_fill, end_color=hex_fill, fill_type="solid")
+
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def _too_large(count: int) -> HTTPException | None:
+    cap = _max_rows()
+    if count > cap:
+        return HTTPException(
+            status_code=413,
+            detail=f"Export exceeds {cap} rows; tighten filters",
+        )
+    return None
+
+
+@router.get(
+    "/obligations",
+    dependencies=[Depends(require_asset_scope("asset_id", required_for_non_admin=True))],
+)
+def export_obligations(
+    format: Literal["csv", "xlsx"] = Query(default="csv"),
+    status: ReviewStatus | None = Query(default=None),
+    severity: Severity | None = Query(default=None),
+    document_id: UUID | None = Query(default=None),
+    asset_id: UUID | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    query = _build_obligation_query(
+        db,
+        status=status,
+        severity=severity,
+        document_id=document_id,
+        asset_id=asset_id,
+    )
+    count = query.count()
+    error = _too_large(count)
+    if error is not None:
+        raise error
+
+    obligations = query.order_by(Obligation.created_at.desc()).all()
+    rows = list(_resolve_obligation_rows(db, obligations))
+    asset_name = rows[0].asset_name if rows and asset_id is not None else None
+    filename = _filename("obligations", asset_name, "xlsx" if format == "xlsx" else "csv")
+
+    severity_index = OBLIGATION_COLUMNS.index("severity")
+
+    if format == "xlsx":
+        data = _xlsx_bytes(
+            OBLIGATION_COLUMNS,
+            (_row_for_obligation(row) for row in rows),
+            sheet_name="Obligations",
+            severity_column_index=severity_index,
+        )
+        return Response(
+            content=data,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    stream = _csv_lines(OBLIGATION_COLUMNS, (_row_for_obligation(row) for row in rows))
+    return StreamingResponse(
+        stream,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get(
+    "/risks",
+    dependencies=[Depends(require_asset_scope("asset_id", required_for_non_admin=True))],
+)
+def export_risks(
+    format: Literal["csv", "xlsx"] = Query(default="csv"),
+    status: ReviewStatus | None = Query(default=None),
+    severity: Severity | None = Query(default=None),
+    risk_type: RiskType | None = Query(default=None),
+    document_id: UUID | None = Query(default=None),
+    asset_id: UUID | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    query = _build_risk_query(
+        db,
+        status=status,
+        severity=severity,
+        risk_type=risk_type,
+        document_id=document_id,
+        asset_id=asset_id,
+    )
+    count = query.count()
+    error = _too_large(count)
+    if error is not None:
+        raise error
+
+    risks = query.order_by(Risk.created_at.desc()).all()
+    rows = list(_resolve_risk_rows(db, risks))
+    asset_name = rows[0].asset_name if rows and asset_id is not None else None
+    filename = _filename("risks", asset_name, "xlsx" if format == "xlsx" else "csv")
+
+    severity_index = RISK_COLUMNS.index("severity")
+
+    if format == "xlsx":
+        data = _xlsx_bytes(
+            RISK_COLUMNS,
+            (_row_for_risk(row) for row in rows),
+            sheet_name="Risks",
+            severity_column_index=severity_index,
+        )
+        return Response(
+            content=data,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    stream = _csv_lines(RISK_COLUMNS, (_row_for_risk(row) for row in rows))
+    return StreamingResponse(
+        stream,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
