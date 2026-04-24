@@ -203,7 +203,7 @@ def _resolve_obligation_rows(
     review_rows = (
         db.query(ObligationReview)
         .filter(ObligationReview.obligation_id.in_(obligation_ids))
-        .order_by(ObligationReview.created_at.desc(), ObligationReview.id.desc())
+        .order_by(ObligationReview.decided_at.desc(), ObligationReview.id.desc())
         .all()
     )
     last_review: dict[UUID, ObligationReview] = {}
@@ -258,7 +258,7 @@ def _resolve_risk_rows(db: Session, risks: list[Risk]) -> Iterator[_RiskRow]:
     review_rows = (
         db.query(RiskReview)
         .filter(RiskReview.risk_id.in_(risk_ids))
-        .order_by(RiskReview.created_at.desc(), RiskReview.id.desc())
+        .order_by(RiskReview.decided_at.desc(), RiskReview.id.desc())
         .all()
     )
     last_review: dict[UUID, RiskReview] = {}
@@ -309,7 +309,7 @@ def _row_for_obligation(row: _ObligationRow) -> list[str]:
         _iso_or_empty(ev.raw_char_start if ev else None),
         _iso_or_empty(ev.raw_char_end if ev else None),
         _iso_or_empty(ob.created_at),
-        _iso_or_empty(last.created_at if last else None),
+        _iso_or_empty(last.decided_at if last else None),
         row.reviewer_email or "",
     ]
 
@@ -333,7 +333,7 @@ def _row_for_risk(row: _RiskRow) -> list[str]:
         _iso_or_empty(ev.raw_char_start if ev else None),
         _iso_or_empty(ev.raw_char_end if ev else None),
         _iso_or_empty(r.created_at),
-        _iso_or_empty(last.created_at if last else None),
+        _iso_or_empty(last.decided_at if last else None),
         row.reviewer_email or "",
     ]
 
@@ -360,9 +360,11 @@ def _xlsx_bytes(
 ) -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
 
     workbook = Workbook()
     sheet = workbook.active
+    assert sheet is not None  # openpyxl always creates an active worksheet on new Workbook()
     sheet.title = sheet_name
     sheet.append(columns)
     for cell in sheet[1]:
@@ -390,7 +392,7 @@ def _xlsx_bytes(
         "reviewer_email": 28,
     }
     for idx, column_name in enumerate(columns, start=1):
-        sheet.column_dimensions[sheet.cell(row=1, column=idx).column_letter].width = widths.get(column_name, 18)
+        sheet.column_dimensions[get_column_letter(idx)].width = widths.get(column_name, 18)
 
     severity_column_excel_index = severity_column_index + 1  # 1-based
     for row in rows:
