@@ -395,6 +395,7 @@ def test_export_obligations_xlsx_severity_cell_colors():
 
     workbook = load_workbook(BytesIO(response.content))
     sheet = workbook.active
+    assert sheet is not None
     assert sheet.title == "Obligations"
     assert sheet["A1"].font.bold is True
     assert sheet.freeze_panes == "A2"
