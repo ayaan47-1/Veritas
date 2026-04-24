@@ -83,3 +83,26 @@ def test_obligation_columns_match_spec():
 
 def test_risk_columns_match_spec():
     assert exports_router.RISK_COLUMNS == RISK_COLUMNS
+
+
+def test_slug_handles_spaces_and_special_chars():
+    assert exports_router._slug("Willow Creek Tower") == "willow_creek_tower"
+    assert exports_router._slug("A&B / C, D!") == "ab_c_d"
+    assert exports_router._slug("   ") == "all"
+    assert exports_router._slug(None) == "all"
+    assert exports_router._slug("") == "all"
+
+
+def test_filename_structure(monkeypatch):
+    filename = exports_router._filename("obligations", "Willow Creek", "csv")
+    assert filename.startswith("obligations_willow_creek_")
+    assert filename.endswith(".csv")
+    date_part = filename[len("obligations_willow_creek_"):-4]
+    assert len(date_part) == 10
+    assert date_part[4] == "-" and date_part[7] == "-"
+
+
+def test_filename_all_when_no_asset():
+    filename = exports_router._filename("risks", None, "xlsx")
+    assert filename.startswith("risks_all_")
+    assert filename.endswith(".xlsx")
