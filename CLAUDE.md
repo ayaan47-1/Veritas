@@ -200,6 +200,7 @@ Key relationships:
 - `GET /assets`, `POST /assets`, `GET /assets/{id}`, `DELETE /assets/{id}`, `GET /assets/{id}/documents`
 - `GET /obligations`, `GET /obligations/{id}`, `POST /obligations/{id}/review`
 - `GET /risks`, `GET /risks/{id}`, `POST /risks/{id}/review` — `decision: approve|reject|edit_approve`, `field_edits` (JSONB), `reviewer_confidence`, `reason`
+- `GET /exports/obligations`, `GET /exports/risks` — CSV/XLSX export, same filters as list endpoints, `?format=csv|xlsx`, 50k row cap via `exports.max_rows`
 - `GET /users/me`, `GET /users`, `PUT /users/{id}/role`, `GET /users/{id}/assets`, `POST /users/{id}/assets`, `DELETE /users/{id}/assets/{asset_id}`
 - `GET /notifications`, `PUT /notifications/{id}/read`
 - `GET /entities`, `GET /entities/suggestions`, `POST /entities/{id}/merge`, `POST /entity-mentions/{id}/resolve`
