@@ -419,3 +419,6 @@ mcp:
   # Absolute path to the built VeritasMCP server entry point.
   # Override with MCP_SERVER_PATH env var in production.
   server_path: ""
+
+exports:
+  max_rows: 50000

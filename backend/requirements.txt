@@ -13,4 +13,5 @@ litellm>=1.40.0
 PyJWT[crypto]>=2.8.0
 mcp>=1.0.0
 starlette>=0.40.0,<0.42.0
+openpyxl>=3.1,<4.0
 
