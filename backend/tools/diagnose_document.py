@@ -20,12 +20,22 @@ from backend.app.models import (
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--document-id", required=True)
+    parser.add_argument("--document-id", required=False)
+    parser.add_argument("--list", action="store_true", help="List all documents in the DB")
     args = parser.parse_args()
-    doc_id = args.document_id
 
     db = SessionLocal()
     try:
+        if args.list or not args.document_id:
+            docs = db.query(Document).order_by(Document.uploaded_at.desc()).all()
+            print(f"=== All Documents ({len(docs)}) ===")
+            for d in docs:
+                chunks = db.query(func.count(Chunk.id)).filter(Chunk.document_id == d.id).scalar()
+                obl = db.query(func.count(Obligation.id)).filter(Obligation.document_id == d.id).scalar()
+                print(f"  {d.id} | {d.source_name} | status={d.parse_status} | pages={d.total_pages} | chunks={chunks} | obligations={obl} | uploaded={d.uploaded_at}")
+            return
+
+        doc_id = args.document_id
         doc = db.query(Document).filter(Document.id == doc_id).first()
         print("=== Document ===")
         if doc is None:
