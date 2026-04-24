@@ -196,6 +196,7 @@ Key relationships:
 ### API (`backend/app/routers/`)
 
 - `POST /ingest` — multipart: `asset_id`, `uploaded_by`, `file`. SHA256 dedup, 500-page limit.
+- `POST /ingest/bulk` — multipart: `asset_id`, `uploaded_by`, `files[]`. Authenticated bulk PDF ingest, max 100 files, per-file validation and pipeline queueing.
 - `GET /documents/{id}`, `GET /documents/{id}/status`, `DELETE /documents/{id}`, `GET /documents/{id}/pdf`, `GET /documents/{id}/pages/{page_number}`, `POST /documents/{id}/process`
 - `GET /assets`, `POST /assets`, `GET /assets/{id}`, `DELETE /assets/{id}`, `GET /assets/{id}/documents`
 - `GET /obligations`, `GET /obligations/{id}`, `POST /obligations/{id}/review`
