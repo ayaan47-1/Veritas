@@ -100,3 +100,46 @@ def _filename(entity: str, asset_name: str | None, ext: str) -> str:
 def _max_rows() -> int:
     raw = settings.raw.get("exports", {}).get("max_rows", 50000)
     return int(raw)
+
+
+def _build_obligation_query(
+    db: Session,
+    *,
+    status: ReviewStatus | None,
+    severity: Severity | None,
+    document_id: UUID | None,
+    asset_id: UUID | None,
+):
+    query = db.query(Obligation)
+    if status is not None:
+        query = query.filter(Obligation.status == status)
+    if severity is not None:
+        query = query.filter(Obligation.severity == severity)
+    if document_id is not None:
+        query = query.filter(Obligation.document_id == document_id)
+    if asset_id is not None:
+        query = query.join(Document, Obligation.document_id == Document.id).filter(Document.asset_id == asset_id)
+    return query
+
+
+def _build_risk_query(
+    db: Session,
+    *,
+    status: ReviewStatus | None,
+    severity: Severity | None,
+    risk_type: RiskType | None,
+    document_id: UUID | None,
+    asset_id: UUID | None,
+):
+    query = db.query(Risk)
+    if status is not None:
+        query = query.filter(Risk.status == status)
+    if severity is not None:
+        query = query.filter(Risk.severity == severity)
+    if risk_type is not None:
+        query = query.filter(Risk.risk_type == risk_type)
+    if document_id is not None:
+        query = query.filter(Risk.document_id == document_id)
+    if asset_id is not None:
+        query = query.join(Document, Risk.document_id == Document.id).filter(Document.asset_id == asset_id)
+    return query
