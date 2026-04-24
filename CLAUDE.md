@@ -54,7 +54,7 @@ python3 -m compileall backend/app backend/alembic backend/tools -q
 python3 -m alembic -c backend/alembic.ini upgrade head
 python3 -m alembic -c backend/alembic.ini revision --autogenerate -m "description"
 python3 -m alembic -c backend/alembic.ini heads
-# Current head chain: c03dec85f67a → e1f2a3b4c5d6 → a9b8c7d6e5f4 → f3c7beac04b9 → 7c1d4e2b9a10 → b2e4f6a8c0d1 → c4d5e6f7a8b9 → d5e6f7a8b9c0 → e6f7a8b9c0d1 → f7a8b9c0d1e2 (HEAD)
+# Current head chain: c03dec85f67a → e1f2a3b4c5d6 → a9b8c7d6e5f4 → f3c7beac04b9 → 7c1d4e2b9a10 → b2e4f6a8c0d1 → c4d5e6f7a8b9 → d5e6f7a8b9c0 → e6f7a8b9c0d1 → f7a8b9c0d1e2 → a1b2c3d4e5f6 (HEAD)
 
 # Eval / benchmark tools (require API key env vars)
 python3 -m backend.tools.generate_ground_truth --document-id <uuid>   # AI-labels all obligations/risks
@@ -111,6 +111,8 @@ Config is loaded by `backend/app/config.py` in priority order:
 
 OCR env vars: `DEEPINFRA_API_KEY` (required for OCR), `DEEPINFRA_OLMOCR_URL`, `DEEPINFRA_OLMOCR_MODEL`.
 
+Digest env vars: `RESEND_API_KEY` (required for sending), `DIGEST_UNSUBSCRIBE_SECRET` (required to mint one-click unsubscribe tokens — if unset, the send function logs a warning and skips delivery).
+
 LLM env vars (read by LiteLLM): `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`. At least one required for stages 6–10b.
 
 Clerk auth env vars: `CLERK_JWKS_URL`, `CLERK_ISSUER`. Required for JWT verification in production.
@@ -163,6 +165,19 @@ Extraction stages 6–8 use Maximal Marginal Relevance to select the most releva
 - `normalization.py` — NFC + ligature expansion + whitespace collapse.
 - `ocr.py` — calls DeepInfra OLMOCR via raw `urllib`. Raises `OCRUnavailableError`; task layer isolates per-page failures.
 - `storage.py` — `LocalStorage.save(relative_path, bytes)` writes under `data_dir`.
+- `email.py` — raw `urllib` Resend wrapper. `send_email(to, subject, html, from_address, list_unsubscribe=None)` → `EmailResult`. Reads `RESEND_API_KEY` at call time; raises `EmailSendError` on missing key, non-2xx, or transport error. Sets `List-Unsubscribe` + `List-Unsubscribe-Post: List-Unsubscribe=One-Click` headers when `list_unsubscribe` URL is provided (Gmail/Yahoo bulk-sender compliance).
+- `unsubscribe_token.py` — pure HMAC-SHA256 signer for one-click unsubscribe. `mint_unsubscribe_token(user_id, secret, ttl_days=365)` + `verify_unsubscribe_token(token, secret)`. Token is `base64url(user_id|expiry).base64url(hmac)`. Reads secret from `DIGEST_UNSUBSCRIBE_SECRET` env var.
+
+### Digest module (`backend/app/worker/`)
+
+Weekly email digest — entirely separate from the in-app notification system in `tasks/notify.py`.
+
+- `tasks/digest.py::compose_user_digest(db, user_id, today=None)` — queries assignments → docs → obligations → filters in Python by `due_date in [today, today+30d]` and `status in {confirmed, needs_review}`. Returns `{subject, html, recipient, item_count, critical_count}` or `None` when no items. Uses three buckets: `critical_this_week` (severity∈{critical,high} AND due≤today+7d), `due_next_14_days`, `coming_up_30_days`. First-match-wins.
+- `tasks/digest.py::render_digest_html` — pure Python f-string template, inline CSS only, 600px max width. Severity colors match `SeverityBadge`: `critical=#dc2626, high=#ea580c, medium=#ca8a04, low=#2563eb`.
+- `digest.py` — two Inngest functions:
+  - `weekly_digest_dispatch` — cron `0 12 * * 1` UTC (7am Central / 8am Eastern). Loads `digest_enabled=True, is_active=True` users and emits one `veritas/digest.send` event per user.
+  - `send_user_digest` — triggered by `veritas/digest.send`, `retries=3`. Composes + signs per-user unsubscribe URL + calls `send_email`. Skips silently if `DIGEST_UNSUBSCRIBE_SECRET` is unset.
+- **v1 timezone behavior:** single UTC batch. `users.digest_timezone` column is stored from day one but not yet consulted by the cron. v2 upgrade = change cron to hourly and filter users by `now_in_user_tz.hour == 7` (no migration needed).
 
 ### Task modules (`backend/app/worker/tasks/`)
 
@@ -201,6 +216,8 @@ Key relationships:
 - `GET /obligations`, `GET /obligations/{id}`, `POST /obligations/{id}/review`
 - `GET /risks`, `GET /risks/{id}`, `POST /risks/{id}/review` — `decision: approve|reject|edit_approve`, `field_edits` (JSONB), `reviewer_confidence`, `reason`
 - `GET /users/me`, `GET /users`, `PUT /users/{id}/role`, `GET /users/{id}/assets`, `POST /users/{id}/assets`, `DELETE /users/{id}/assets/{asset_id}`
+- `GET /users/me/preferences`, `PUT /users/me/preferences` — digest toggle + timezone
+- `POST /users/unsubscribe/{token}` — **no auth**; HMAC-signed one-click unsubscribe from email digests
 - `GET /notifications`, `PUT /notifications/{id}/read`
 - `GET /entities`, `GET /entities/suggestions`, `POST /entities/{id}/merge`, `POST /entity-mentions/{id}/resolve`
 - `GET /summaries/weekly` (asset_id required), `GET /summaries/weekly/narrative`
@@ -234,7 +251,7 @@ Service-layer tests (`test_chunking.py`, `test_normalization.py`) — pure funct
 
 `test_llm_service.py` patches `backend.app.services.llm.litellm` (the module-level import).
 
-**Current baseline: 198 tests, all passing.**
+**Current baseline: 238 tests, all passing.** (was 198 pre-digest; email digest added 40 new tests across unsubscribe token, email service, digest composition, and preferences/unsubscribe endpoints.)
 
 ## Non-Negotiable Rules
 
@@ -261,7 +278,7 @@ Service-layer tests (`test_chunking.py`, `test_normalization.py`) — pure funct
 
 ## Implementation Status
 
-All 14 pipeline steps implemented. All API routers implemented. Clerk JWT auth live. Current baseline: **198 passing tests** (backend pytest).
+All 14 pipeline steps implemented. All API routers implemented. Clerk JWT auth live. Current baseline: **238 passing tests** (backend pytest).
 
 Implemented frontend screens:
 - Asset list (`/`) — cards link to `/assets/[id]/documents`

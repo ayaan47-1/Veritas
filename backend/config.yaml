@@ -419,3 +419,11 @@ mcp:
   # Absolute path to the built VeritasMCP server entry point.
   # Override with MCP_SERVER_PATH env var in production.
   server_path: ""
+
+digest:
+  # Weekly email digest feature. Cron fires Mondays 12:00 UTC.
+  # RESEND_API_KEY and DIGEST_UNSUBSCRIBE_SECRET env vars required in production.
+  enabled: true
+  from_address: "digest@veritaslayer.net"
+  public_base_url: "https://veritaslayer.net"
+
