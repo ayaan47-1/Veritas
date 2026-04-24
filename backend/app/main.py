@@ -11,6 +11,7 @@ from .routers import compliance as compliance_router
 from .routers import config as config_router
 from .routers import documents as documents_router
 from .routers import entities as entities_router
+from .routers import exports as exports_router
 from .routers import ifc as ifc_router
 from .routers import ingest as ingest_router
 from .routers import notifications as notifications_router
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
     app.include_router(users_router)
     app.include_router(notifications_router)
     app.include_router(config_router)
+    app.include_router(exports_router)
 
     from .worker.inngest_client import inngest_client
     from .worker.pipeline import process_document, run_compliance_check

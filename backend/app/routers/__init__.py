@@ -4,6 +4,7 @@ from .compliance import router as compliance
 from .config import router as config
 from .documents import router as documents
 from .entities import router as entities
+from .exports import router as exports
 from .ifc import router as ifc
 from .ingest import router as ingest
 from .notifications import router as notifications
@@ -19,6 +20,7 @@ __all__ = [
     "config",
     "documents",
     "entities",
+    "exports",
     "ifc",
     "ingest",
     "notifications",
