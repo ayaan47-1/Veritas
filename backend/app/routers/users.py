@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timezone
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -11,6 +13,7 @@ from sqlalchemy.orm import Session
 from ..auth.deps import get_current_user, require_admin, require_authenticated
 from ..database import get_db
 from ..models import AuditAction, AuditLog, User, UserAssetAssignment, UserRole
+from ..services.unsubscribe_token import InvalidTokenError, verify_unsubscribe_token
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -18,6 +21,11 @@ router = APIRouter(prefix="/users", tags=["users"])
 class UserRoleUpdateIn(BaseModel):
     role: UserRole
     updated_by: UUID | None = None
+
+
+class PreferencesIn(BaseModel):
+    digest_enabled: bool | None = None
+    digest_timezone: str | None = None
 
 
 class UserAssetAssignIn(BaseModel):
@@ -41,6 +49,73 @@ def _serialize_user(user: User) -> dict:
 @router.get("/me", dependencies=[Depends(require_authenticated)])
 def get_me(current_user: User = Depends(get_current_user)):
     return _serialize_user(current_user)
+
+
+def _serialize_preferences(user: User) -> dict:
+    return {
+        "digest_enabled": user.digest_enabled,
+        "digest_timezone": user.digest_timezone,
+    }
+
+
+@router.get("/me/preferences", dependencies=[Depends(require_authenticated)])
+def get_my_preferences(current_user: User = Depends(get_current_user)):
+    return _serialize_preferences(current_user)
+
+
+@router.put("/me/preferences", dependencies=[Depends(require_authenticated)])
+def update_my_preferences(
+    payload: PreferencesIn,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if payload.digest_enabled is None and payload.digest_timezone is None:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    if payload.digest_timezone is not None:
+        try:
+            ZoneInfo(payload.digest_timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid timezone: {payload.digest_timezone}",
+            ) from exc
+        current_user.digest_timezone = payload.digest_timezone
+
+    if payload.digest_enabled is not None:
+        current_user.digest_enabled = payload.digest_enabled
+
+    db.add(current_user)
+    db.commit()
+    return _serialize_preferences(current_user)
+
+
+@router.post("/unsubscribe/{token}")
+def unsubscribe(token: str, db: Session = Depends(get_db)):
+    """One-click unsubscribe endpoint — intentionally no auth.
+
+    Accepts a signed HMAC token minted for a specific user. Idempotent.
+    """
+    secret = os.getenv("DIGEST_UNSUBSCRIBE_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Unsubscribe not available",
+        )
+    try:
+        user_id = verify_unsubscribe_token(token, secret)
+    except InvalidTokenError as exc:
+        raise HTTPException(status_code=404, detail="Invalid token") from exc
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.digest_enabled:
+        user.digest_enabled = False
+        db.add(user)
+        db.commit()
+    return {"ok": True, "email": user.email}
 
 
 @router.get("", dependencies=[Depends(require_admin)])
