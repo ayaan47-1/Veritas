@@ -22,6 +22,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--document-id", required=False)
     parser.add_argument("--list", action="store_true", help="List all documents in the DB")
+    parser.add_argument("--errors", action="store_true", help="Dump raw_llm_output errors for recent extraction runs")
+    parser.add_argument("--error-sample", type=int, default=5, help="How many error samples per run to print")
     args = parser.parse_args()
 
     db = SessionLocal()
@@ -110,7 +112,12 @@ def main() -> None:
             }
             meta_str = json.dumps(interesting, default=str)[:300] if interesting else "{}"
             err = (r.error or "")[:200]
-            print(f"  {r.stage} | {r.status} | started={r.started_at} | meta={meta_str} | err={err}")
+            outputs = raw.get("outputs", []) if isinstance(raw, dict) else []
+            errors = raw.get("errors", []) if isinstance(raw, dict) else []
+            print(f"  {r.stage} | {r.status} | started={r.started_at} | model={r.model_used} | outputs={len(outputs)} | errors={len(errors)} | meta={meta_str} | err={err}")
+            if args.errors and errors:
+                for e in errors[: args.error_sample]:
+                    print(f"      - page={e.get('page_number')} chunk={e.get('chunk_id')} error={str(e.get('error',''))[:300]}")
     finally:
         db.close()
 
