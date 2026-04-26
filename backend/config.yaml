@@ -427,3 +427,5 @@ digest:
   from_address: "digest@veritaslayer.net"
   public_base_url: "https://veritaslayer.net"
 
+exports:
+  max_rows: 50000

@@ -215,6 +215,7 @@ Key relationships:
 - `GET /assets`, `POST /assets`, `GET /assets/{id}`, `DELETE /assets/{id}`, `GET /assets/{id}/documents`
 - `GET /obligations`, `GET /obligations/{id}`, `POST /obligations/{id}/review`
 - `GET /risks`, `GET /risks/{id}`, `POST /risks/{id}/review` — `decision: approve|reject|edit_approve`, `field_edits` (JSONB), `reviewer_confidence`, `reason`
+- `GET /exports/obligations`, `GET /exports/risks` — CSV/XLSX export, same filters as list endpoints, `?format=csv|xlsx`, 50k row cap via `exports.max_rows`
 - `GET /users/me`, `GET /users`, `PUT /users/{id}/role`, `GET /users/{id}/assets`, `POST /users/{id}/assets`, `DELETE /users/{id}/assets/{asset_id}`
 - `GET /users/me/preferences`, `PUT /users/me/preferences` — digest toggle + timezone
 - `POST /users/unsubscribe/{token}` — **no auth**; HMAC-signed one-click unsubscribe from email digests

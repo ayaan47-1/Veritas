@@ -9,7 +9,7 @@ import ReviewModal from "@/components/ReviewModal";
 import SeverityBadge from "@/components/SeverityBadge";
 import StatusBadge from "@/components/StatusBadge";
 import { getAssetDocuments, getAssets, getCurrentUser, getDocumentStatus, getRisks, reviewRisk } from "@/lib/api";
-import { csvFilename, downloadCsv } from "@/lib/csv";
+import { csvFilename, downloadCsv, downloadExport } from "@/lib/csv";
 import { computeProgressPercent, isInProgressParseStatus, isTerminalParseStatus } from "@/lib/pipeline";
 import { summarizeText } from "@/lib/evidence-utils";
 import type { Asset, CurrentUser, ReviewDecision, Risk } from "@/lib/types";
@@ -74,6 +74,8 @@ export default function RisksClientPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [showRejected, setShowRejected] = useState(false);
   const [processingState, setProcessingState] = useState<ProcessingState | null>(null);
+  const [downloadingFormat, setDownloadingFormat] = useState<"csv" | "xlsx" | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const hadActiveProcessingRef = useRef(false);
 
   const selectedAsset = useMemo(() => assets.find((a) => a.id === assetId) ?? null, [assets, assetId]);
@@ -239,6 +241,28 @@ export default function RisksClientPage() {
     downloadCsv(csvFilename("Risks", selectedAsset?.name ?? "All"), headers, rows);
   }
 
+  const handleDownload = useCallback(
+    async (format: "csv" | "xlsx") => {
+      setDownloadingFormat(format);
+      setDownloadError(null);
+      try {
+        const token = await getToken();
+        if (!token) {
+          throw new Error("Not authenticated");
+        }
+        const params = new URLSearchParams();
+        if (assetId) params.set("asset_id", assetId);
+        await downloadExport("risks", params, format, token);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Download failed";
+        setDownloadError(message);
+      } finally {
+        setDownloadingFormat(null);
+      }
+    },
+    [assetId, getToken],
+  );
+
   async function submitReview(payload: {
     decision: ReviewDecision;
     reviewer_confidence: number;
@@ -350,7 +374,7 @@ export default function RisksClientPage() {
             </section>
           ) : (
           <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
-            <div className="border-b border-border bg-bg-subtle px-4 py-3">
+            <div className="flex flex-wrap items-center gap-3 border-b border-border bg-bg-subtle px-4 py-3">
               <label className="inline-flex items-center gap-1.5 text-sm text-text-secondary">
                 <input
                   type="checkbox"
@@ -360,6 +384,31 @@ export default function RisksClientPage() {
                 />
                 Show rejected
               </label>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleDownload("csv")}
+                  disabled={downloadingFormat !== null}
+                  className="rounded-full border px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ background: "var(--info-subtle)", color: "var(--info)", borderColor: "var(--info)" }}
+                >
+                  {downloadingFormat === "csv" ? "Preparing…" : "Download CSV"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleDownload("xlsx")}
+                  disabled={downloadingFormat !== null}
+                  className="rounded-full border px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ background: "var(--info-subtle)", color: "var(--info)", borderColor: "var(--info)" }}
+                >
+                  {downloadingFormat === "xlsx" ? "Preparing…" : "Download Excel"}
+                </button>
+                {downloadError ? (
+                  <span className="text-sm font-medium text-danger" role="alert">
+                    {downloadError}
+                  </span>
+                ) : null}
+              </div>
             </div>
             <table className="w-full border-collapse text-sm">
               <thead>

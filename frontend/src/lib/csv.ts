@@ -32,3 +32,47 @@ export function csvFilename(prefix: string, assetName: string): string {
   const safe = assetName.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+/g, "_");
   return `VeritasLayer_${prefix}_${safe}_${date}.csv`;
 }
+
+export function parseFilenameFromDisposition(
+  header: string | null,
+  fallback: string = "export",
+): string {
+  if (!header) return fallback;
+  const match = header.match(/filename="([^"]+)"/i);
+  return match ? match[1] : fallback;
+}
+
+export async function downloadExport(
+  endpoint: "obligations" | "risks",
+  params: URLSearchParams,
+  format: "csv" | "xlsx",
+  token: string,
+): Promise<void> {
+  const query = new URLSearchParams(params);
+  query.set("format", format);
+  const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+  const res = await fetch(`${base}/exports/${endpoint}?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    let detail = `Export failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      // response wasn't JSON — keep default message
+    }
+    throw new Error(detail);
+  }
+  const filename = parseFilenameFromDisposition(
+    res.headers.get("content-disposition"),
+    `${endpoint}.${format}`,
+  );
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
