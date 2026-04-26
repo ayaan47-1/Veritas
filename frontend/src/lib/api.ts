@@ -1,5 +1,6 @@
 import type {
   Asset,
+  BulkIngestResponse,
   ConfigResponse,
   CurrentUser,
   DocumentDetail,
@@ -290,6 +291,52 @@ export async function ingestDocument(
   }
 
   return (await response.json()) as { document_id: string };
+}
+
+export async function ingestBulkDocuments(
+  getToken: GetTokenFn,
+  payload: { assetId: string; uploadedBy: string; files: File[] },
+): Promise<BulkIngestResponse> {
+  const token = await getToken();
+  if (!token) {
+    throw new ApiError("Missing auth token", 401);
+  }
+
+  const formData = new FormData();
+  formData.set("asset_id", payload.assetId);
+  formData.set("uploaded_by", payload.uploadedBy);
+  payload.files.forEach((file) => {
+    formData.append("files", file);
+  });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/ingest/bulk`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`, 504);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const body = (await response.json()) as BulkIngestResponse | { detail?: string };
+  if (!response.ok && "detail" in body) {
+    throw new ApiError(body.detail ?? `${response.status} ${response.statusText}`, response.status);
+  }
+
+  return body as BulkIngestResponse;
 }
 
 export async function processDocument(getToken: GetTokenFn, documentId: string): Promise<{ ok: boolean }> {

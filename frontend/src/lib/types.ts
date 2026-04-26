@@ -111,6 +111,21 @@ export type DocumentStatus = {
   pages_failed: number;
 };
 
+export type BulkIngestSuccess = {
+  filename: string;
+  document_id: string;
+};
+
+export type BulkIngestFailure = {
+  filename: string;
+  reason: string;
+};
+
+export type BulkIngestResponse = {
+  succeeded: BulkIngestSuccess[];
+  failed: BulkIngestFailure[];
+};
+
 export type TextSpan = {
   id: string;
   char_start: number;
