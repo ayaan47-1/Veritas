@@ -20,6 +20,10 @@ class User(Base, UUIDPrimaryKeyMixin):
     oidc_subject: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    digest_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    digest_timezone: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="America/Chicago"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

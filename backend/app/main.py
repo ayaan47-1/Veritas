@@ -52,8 +52,18 @@ def create_app() -> FastAPI:
 
     from .worker.inngest_client import inngest_client
     from .worker.pipeline import process_document, run_compliance_check
+    from .worker.digest import send_user_digest, weekly_digest_dispatch
 
-    inngest.fast_api.serve(app, inngest_client, [process_document, run_compliance_check])
+    inngest.fast_api.serve(
+        app,
+        inngest_client,
+        [
+            process_document,
+            run_compliance_check,
+            weekly_digest_dispatch,
+            send_user_digest,
+        ],
+    )
 
     return app
 
