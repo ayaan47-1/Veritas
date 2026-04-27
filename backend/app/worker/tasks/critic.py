@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from difflib import SequenceMatcher
+import logging
+import time
 import uuid
 
 from sqlalchemy.orm import Session
@@ -26,10 +28,12 @@ from ...models import (
     RiskType,
     Severity,
 )
-from ...services.llm import llm_completion, parse_json_dict
+from ...services.llm import LLMResponseError, llm_completion, parse_json_dict
 from ...services.normalization import normalize_text
 from ._helpers import update_parse_status
 from .verify import _verify_obligations, _verify_risks
+
+logger = logging.getLogger(__name__)
 
 
 _CRITIC_PROMPT_TEMPLATE = (
@@ -183,6 +187,51 @@ def _get_or_create_prompt_version(db: Session, uploaded_by: uuid.UUID) -> Prompt
     return prompt
 
 
+def _call_critic_with_fallback(
+    *,
+    prompt: str,
+    critic_model: str,
+    llm_cfg: dict,
+    batch_index: int,
+    batch_size: int,
+) -> tuple[str, str]:
+    """Call llm_completion with model fallback + retries. Returns (model_used, raw_response).
+
+    Tries the critic-configured model first, then any additional fallback models
+    from the global llm config. Per-attempt latency and outcome are logged.
+    Raises the last exception if every (model, attempt) combination fails.
+    """
+    fallback_models = list(llm_cfg.get("fallback_models", []))
+    models = [critic_model, *[m for m in fallback_models if m != critic_model]]
+    max_retries = max(1, int(llm_cfg.get("max_retries", 2)))
+    backoff_base = max(1, int(llm_cfg.get("retry_backoff_base", 2)))
+
+    last_error: Exception | None = None
+    for model in models:
+        for attempt in range(max_retries):
+            t0 = time.monotonic()
+            try:
+                raw = llm_completion(model, prompt, prefer_json_object=True)
+                latency_ms = int((time.monotonic() - t0) * 1000)
+                logger.info(
+                    "critic.batch ok batch=%d items=%d model=%s attempt=%d latency_ms=%d",
+                    batch_index, batch_size, model, attempt, latency_ms,
+                )
+                return model, raw
+            except Exception as exc:
+                last_error = exc
+                latency_ms = int((time.monotonic() - t0) * 1000)
+                logger.warning(
+                    "critic.batch fail batch=%d items=%d model=%s attempt=%d latency_ms=%d error=%s",
+                    batch_index, batch_size, model, attempt, latency_ms, exc.__class__.__name__,
+                )
+                if attempt < max_retries - 1:
+                    time.sleep(backoff_base ** (attempt + 1))
+        # exhausted retries on this model; fall through to next model
+
+    raise last_error if last_error else RuntimeError("critic batch had no models to try")
+
+
 def criticize_extractions(document_id: str) -> dict[str, object]:
     critic_cfg = settings.raw.get("critic", {})
     if not critic_cfg.get("enabled", False):
@@ -203,6 +252,7 @@ def criticize_extractions(document_id: str) -> dict[str, object]:
         model = str(critic_cfg.get("model", "claude-sonnet-4-6"))
         max_items = max(1, int(critic_cfg.get("max_items_per_call", 30) or 30))
         auto_reject_threshold = max(0, min(100, int(critic_cfg.get("auto_reject_threshold", 70))))
+        llm_cfg = settings.raw.get("llm", {}) if isinstance(settings.raw, dict) else {}
 
         obligations = db.query(Obligation).filter(Obligation.document_id == document.id).all()
         risks = db.query(Risk).filter(Risk.document_id == document.id).all()
@@ -234,6 +284,8 @@ def criticize_extractions(document_id: str) -> dict[str, object]:
         validations_applied = 0
         auto_rejected = 0
         outputs: list[dict] = []
+        errors: list[dict] = []
+        success_count = 0
         all_new_obligation_entries: list[dict] = []
         all_new_risk_entries: list[dict] = []
 
@@ -244,11 +296,42 @@ def criticize_extractions(document_id: str) -> dict[str, object]:
         else:
             batches = [[]]
 
-        for batch in batches:
+        for batch_index, batch in enumerate(batches):
             prompt = _build_prompt(document, batch, full_text)
-            raw = llm_completion(model, prompt, prefer_json_object=True)
-            payload = parse_json_dict(raw)
-            outputs.append(payload)
+
+            try:
+                model_used, raw = _call_critic_with_fallback(
+                    prompt=prompt,
+                    critic_model=model,
+                    llm_cfg=llm_cfg,
+                    batch_index=batch_index,
+                    batch_size=len(batch),
+                )
+            except Exception as exc:
+                errors.append({
+                    "batch_index": batch_index,
+                    "item_count": len(batch),
+                    "error": f"{exc.__class__.__name__}: {exc}"[:500],
+                })
+                logger.error(
+                    "critic.batch exhausted batch=%d items=%d error=%s",
+                    batch_index, len(batch), exc.__class__.__name__,
+                )
+                continue
+
+            try:
+                payload = parse_json_dict(raw)
+            except LLMResponseError as exc:
+                errors.append({
+                    "batch_index": batch_index,
+                    "item_count": len(batch),
+                    "error": f"parse: {exc}"[:500],
+                })
+                logger.error("critic.batch parse_failed batch=%d error=%s", batch_index, exc)
+                continue
+
+            outputs.append({"batch_index": batch_index, "model": model_used, "response": payload})
+            success_count += 1
 
             validations = payload.get("validations", [])
             if isinstance(validations, list):
@@ -373,16 +456,22 @@ def criticize_extractions(document_id: str) -> dict[str, object]:
             _verify_risks(db, document, pages, new_risk_rows)
 
         run.completed_at = datetime.now(timezone.utc)
-        run.status = ExtractionStatus.completed
-        run.raw_llm_output = {"outputs": outputs}
+        run.raw_llm_output = {"outputs": outputs, "errors": errors}
+        run.status = ExtractionStatus.completed if (success_count > 0 or not errors) else ExtractionStatus.failed
+        if run.status == ExtractionStatus.failed and errors:
+            run.error = str(errors[0].get("error", "stage_failed"))[:1000]
         db.add(run)
         db.commit()
 
         return {
             "document_id": str(document.id),
-            "status": "ok",
+            "status": "ok" if not errors else "partial",
             "model_used": model,
             "run_id": str(run.id),
+            "run_status": run.status.value,
+            "batch_count": len(batches),
+            "successful_batch_count": success_count,
+            "failed_batch_count": len(errors),
             "validated_count": validations_applied,
             "auto_rejected_count": auto_rejected,
             "new_obligation_count": len(new_obligations_rows),
