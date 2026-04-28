@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import types
 import uuid
 
@@ -282,3 +283,120 @@ def test_critic_adds_new_items_and_verifies(monkeypatch):
     run = db.extraction_runs[0]
     assert db.obligations[0].extraction_run_id == run.id
     assert db.risks[0].extraction_run_id == run.id
+
+
+def test_critic_falls_back_to_haiku_on_sonnet_timeout(monkeypatch):
+    """Sonnet times out on every batch; Haiku succeeds. Run completes via fallback."""
+    document = _make_document()
+    page = _make_page(document.id, "Borrower shall pay. Lender shall notify.")
+    obligations = [
+        _make_obligation(document.id, "Borrower shall pay."),
+        _make_obligation(document.id, "Lender shall notify."),
+    ]
+    db = FakeSession(document=document, pages=[page], obligations=obligations, risks=[])
+
+    fake_settings = types.SimpleNamespace(
+        raw={
+            "critic": {"enabled": True, "model": "claude-sonnet-4-6", "max_items_per_call": 1, "auto_reject_threshold": 70},
+            "llm": {
+                "primary_model": "claude-sonnet-4-6",
+                "fallback_models": ["claude-haiku-4-5-20251001"],
+                "max_retries": 2,
+                "retry_backoff_base": 1,
+            },
+        }
+    )
+
+    calls: list[str] = []
+
+    class _FakeTimeout(Exception):
+        pass
+
+    def _fake_llm(model: str, prompt: str, prefer_json_object: bool = True) -> str:
+        calls.append(model)
+        if "sonnet" in model:
+            raise _FakeTimeout("Connection timed out after 120.0 seconds")
+        return json.dumps({"validations": [], "new_obligations": [], "new_risks": []})
+
+    monkeypatch.setattr(critic_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(critic_task, "settings", fake_settings)
+    monkeypatch.setattr(critic_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(critic_task, "llm_completion", _fake_llm)
+    monkeypatch.setattr(critic_task, "_verify_obligations", lambda *_a, **_k: ({}, {}))
+    monkeypatch.setattr(critic_task, "_verify_risks", lambda *_a, **_k: ({}, {}))
+    monkeypatch.setattr(time, "sleep", lambda *_a, **_k: None)
+
+    result = critic_task.criticize_extractions(str(document.id))
+
+    assert result["status"] == "ok"
+    assert result["batch_count"] == 2
+    assert result["successful_batch_count"] == 2
+    assert result["failed_batch_count"] == 0
+    run = db.extraction_runs[0]
+    assert run.status == critic_task.ExtractionStatus.completed
+    assert run.error in (None, "")
+    # Sonnet attempts (max_retries=2) per batch + 1 successful Haiku call per batch
+    sonnet_calls = [c for c in calls if "sonnet" in c]
+    haiku_calls = [c for c in calls if "haiku" in c]
+    assert len(sonnet_calls) == 2 * 2  # 2 batches × 2 retries on sonnet
+    assert len(haiku_calls) == 2  # 2 batches succeeded on haiku first try
+    raw = run.raw_llm_output or {}
+    for output in raw.get("outputs", []):
+        assert "haiku" in output["model"]
+
+
+def test_critic_isolates_failed_batch(monkeypatch):
+    """One batch fails on both models; other batches still succeed; run is completed."""
+    document = _make_document()
+    page = _make_page(document.id, "Some agreement text.")
+    # 3 obligations with distinct texts so we can target one for failure
+    obligations = [
+        _make_obligation(document.id, "ALPHA Borrower shall pay."),
+        _make_obligation(document.id, "BETA Lender shall notify."),
+        _make_obligation(document.id, "GAMMA Tenant shall maintain."),
+    ]
+    db = FakeSession(document=document, pages=[page], obligations=obligations, risks=[])
+
+    fake_settings = types.SimpleNamespace(
+        raw={
+            "critic": {"enabled": True, "model": "claude-sonnet-4-6", "max_items_per_call": 1, "auto_reject_threshold": 70},
+            "llm": {
+                "primary_model": "claude-sonnet-4-6",
+                "fallback_models": ["claude-haiku-4-5-20251001"],
+                "max_retries": 2,
+                "retry_backoff_base": 1,
+            },
+        }
+    )
+
+    class _FakeTimeout(Exception):
+        pass
+
+    def _fake_llm(model: str, prompt: str, prefer_json_object: bool = True) -> str:
+        # Batch 1 (BETA item) fails on every model + retry; others succeed first try.
+        if "BETA" in prompt:
+            raise _FakeTimeout("Connection timed out after 120.0 seconds")
+        return json.dumps({"validations": [], "new_obligations": [], "new_risks": []})
+
+    monkeypatch.setattr(critic_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(critic_task, "settings", fake_settings)
+    monkeypatch.setattr(critic_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(critic_task, "llm_completion", _fake_llm)
+    monkeypatch.setattr(critic_task, "_verify_obligations", lambda *_a, **_k: ({}, {}))
+    monkeypatch.setattr(critic_task, "_verify_risks", lambda *_a, **_k: ({}, {}))
+    monkeypatch.setattr(time, "sleep", lambda *_a, **_k: None)
+
+    result = critic_task.criticize_extractions(str(document.id))
+
+    assert result["status"] == "partial"
+    assert result["batch_count"] == 3
+    assert result["successful_batch_count"] == 2
+    assert result["failed_batch_count"] == 1
+    run = db.extraction_runs[0]
+    # Run is completed because at least one batch succeeded
+    assert run.status == critic_task.ExtractionStatus.completed
+    raw = run.raw_llm_output or {}
+    errors = raw.get("errors", [])
+    assert len(errors) == 1
+    assert errors[0]["batch_index"] == 1  # zero-indexed; BETA was second batch
+    assert "Timeout" in errors[0]["error"] or "timed out" in errors[0]["error"]
