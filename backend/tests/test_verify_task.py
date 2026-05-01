@@ -432,3 +432,87 @@ def test_verify_sentence_split_works_for_risks_too(monkeypatch):
     assert risk.status == ReviewStatus.needs_review, "Risk should not be rejected"
     assert len(db.risk_evidence) == 1
     assert db.risk_evidence[0].verification_method == "sentence"
+
+
+def test_verify_obligations_dedups_against_existing_evidence(monkeypatch):
+    """When critic adds a new obligation whose quote already has evidence in
+    the DB (from a prior verify pass), _verify_obligations must skip it
+    instead of crashing on uq_obligation_evidence_quote."""
+    import hashlib as _hashlib
+    document = _make_document()
+    quote = "Tenant shall pay rent on the first of each month"
+    page = _make_page(document.id, f"Header. {quote}. Footer.")
+
+    # Pre-seed an existing obligation + its evidence row (mimics a prior verify pass).
+    existing_ob = _make_obligation(document.id, quote)
+    quote_sha = _hashlib.sha256(quote.encode("utf-8")).hexdigest()
+    start = page.normalized_text.index(quote)
+    end = start + len(quote)
+    existing_evidence = ObligationEvidence(
+        id=uuid.uuid4(),
+        obligation_id=existing_ob.id,
+        document_id=document.id,
+        page_number=page.page_number,
+        quote=quote,
+        quote_sha256=quote_sha,
+        raw_char_start=start,
+        raw_char_end=end,
+        normalized_char_start=start,
+        normalized_char_end=end,
+        source=TextSource.pdf_text,
+        verification_method="exact",
+        fuzzy_similarity=None,
+    )
+
+    # New obligation with the same quote (a critic-detected duplicate).
+    new_ob = _make_obligation(document.id, quote)
+
+    db = FakeSession(document=document, pages=[page], obligations=[existing_ob, new_ob], risks=[])
+    db.obligation_evidence.append(existing_evidence)
+
+    evidence_by_obligation, stats = verify_task._verify_obligations(db, document, [page], [new_ob])
+
+    # New obligation must NOT get an evidence row — caught by pre-loaded dedup.
+    assert new_ob.id not in evidence_by_obligation
+    # No new evidence row was inserted (only the pre-seeded one remains).
+    assert len(db.obligation_evidence) == 1
+    # Dedup counter incremented.
+    assert stats["deduped"] == 1
+
+
+def test_verify_risks_dedups_against_existing_evidence(monkeypatch):
+    import hashlib as _hashlib
+    document = _make_document()
+    quote = "Default by tenant triggers immediate eviction"
+    page = _make_page(document.id, f"Notice. {quote}. End.")
+
+    existing_risk = _make_risk(document.id, quote)
+    quote_sha = _hashlib.sha256(quote.encode("utf-8")).hexdigest()
+    start = page.normalized_text.index(quote)
+    end = start + len(quote)
+    existing_evidence = RiskEvidence(
+        id=uuid.uuid4(),
+        risk_id=existing_risk.id,
+        document_id=document.id,
+        page_number=page.page_number,
+        quote=quote,
+        quote_sha256=quote_sha,
+        raw_char_start=start,
+        raw_char_end=end,
+        normalized_char_start=start,
+        normalized_char_end=end,
+        source=TextSource.pdf_text,
+        verification_method="exact",
+        fuzzy_similarity=None,
+    )
+
+    new_risk = _make_risk(document.id, quote)
+
+    db = FakeSession(document=document, pages=[page], obligations=[], risks=[existing_risk, new_risk])
+    db.risk_evidence.append(existing_evidence)
+
+    evidence_by_risk, stats = verify_task._verify_risks(db, document, [page], [new_risk])
+
+    assert new_risk.id not in evidence_by_risk
+    assert len(db.risk_evidence) == 1
+    assert stats["deduped"] == 1
