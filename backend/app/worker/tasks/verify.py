@@ -156,6 +156,24 @@ def _verify_obligations(
     obligations: list[Obligation],
 ) -> tuple[dict[uuid.UUID, list[ObligationEvidence]], dict[str, int]]:
     seen_keys: set[tuple[str, uuid.UUID, int, int, int]] = set()
+    # Pre-load existing evidence keys for this document so dedup catches
+    # duplicates across calls. verify_extractions clears evidence first so
+    # this is a no-op there, but critic calls _verify_obligations on new
+    # items WITHOUT clearing — without this pre-load, a critic-detected
+    # obligation whose quote matches an existing one's evidence would hit
+    # uq_obligation_evidence_quote and crash the stage.
+    for ev in (
+        db.query(ObligationEvidence)
+        .filter(ObligationEvidence.document_id == document.id)
+        .all()
+    ):
+        seen_keys.add((
+            ev.quote_sha256,
+            ev.document_id,
+            ev.page_number,
+            ev.normalized_char_start,
+            ev.normalized_char_end,
+        ))
     evidence_by_obligation: dict[uuid.UUID, list[ObligationEvidence]] = {}
     fuzzy_threshold, _ = _verification_config()
 
@@ -246,6 +264,19 @@ def _verify_obligations(
 
 def _verify_risks(db: Session, document: Document, pages: list[DocumentPage], risks: list[Risk]) -> tuple[dict[uuid.UUID, list[RiskEvidence]], dict[str, int]]:
     seen_keys: set[tuple[str, uuid.UUID, int, int, int]] = set()
+    # See _verify_obligations for rationale.
+    for ev in (
+        db.query(RiskEvidence)
+        .filter(RiskEvidence.document_id == document.id)
+        .all()
+    ):
+        seen_keys.add((
+            ev.quote_sha256,
+            ev.document_id,
+            ev.page_number,
+            ev.normalized_char_start,
+            ev.normalized_char_end,
+        ))
     evidence_by_risk: dict[uuid.UUID, list[RiskEvidence]] = {}
     fuzzy_threshold, _ = _verification_config()
 

@@ -406,7 +406,11 @@ scoring:
 
 critic:
   enabled: true
-  model: "claude-sonnet-4-6"
+  # Haiku 4.5 selected from real production data (2026-05-01): Sonnet 4.6
+  # reliably hit the 120s LiteLLM timeout on a 30-item + full-doc critic
+  # prompt; Haiku 4.5 completed the same prompt in ~81s. Sonnet→Haiku
+  # fallback was working but cost ~4 min of wasted Sonnet retries per batch.
+  model: "claude-haiku-4-5-20251001"
   max_items_per_call: 30
   auto_reject_threshold: 70
 

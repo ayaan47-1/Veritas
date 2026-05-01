@@ -114,6 +114,14 @@ class FakeSession:
             self.risks.append(obj)
             return
 
+    def delete(self, obj):
+        if isinstance(obj, critic_task.Obligation) and obj in self.obligations:
+            self.obligations.remove(obj)
+            return
+        if isinstance(obj, critic_task.Risk) and obj in self.risks:
+            self.risks.remove(obj)
+            return
+
     def commit(self):
         return None
 
@@ -258,11 +266,13 @@ def test_critic_adds_new_items_and_verifies(monkeypatch):
 
     def _fake_verify_obligations(db_sess, doc, pages, rows):
         verify_calls["obligations"] += len(rows)
-        return {}, {}
+        # Return a non-empty evidence map keyed by obligation ID so critic's
+        # orphan-cleanup doesn't delete these new rows as "no evidence".
+        return {row.id: ["evidence-stub"] for row in rows}, {}
 
     def _fake_verify_risks(db_sess, doc, pages, rows):
         verify_calls["risks"] += len(rows)
-        return {}, {}
+        return {row.id: ["evidence-stub"] for row in rows}, {}
 
     monkeypatch.setattr(critic_task, "SessionLocal", lambda: db)
     monkeypatch.setattr(critic_task, "settings", fake_settings)
@@ -400,3 +410,65 @@ def test_critic_isolates_failed_batch(monkeypatch):
     assert len(errors) == 1
     assert errors[0]["batch_index"] == 1  # zero-indexed; BETA was second batch
     assert "Timeout" in errors[0]["error"] or "timed out" in errors[0]["error"]
+
+
+def test_critic_deletes_orphan_new_items_without_evidence(monkeypatch):
+    """Critic-detected new items that verify dedups against existing evidence
+    must be deleted, not left as orphans without evidence."""
+    document = _make_document()
+    page = _make_page(document.id, "Borrower shall maintain insurance.")
+    db = FakeSession(document=document, pages=[page], obligations=[], risks=[])
+
+    fake_settings = types.SimpleNamespace(
+        raw={
+            "critic": {"enabled": True, "model": "claude-haiku-4-5-20251001", "max_items_per_call": 30, "auto_reject_threshold": 70},
+            "llm": {"primary_model": "claude-haiku-4-5-20251001", "fallback_models": [], "max_retries": 1, "retry_backoff_base": 1},
+        }
+    )
+
+    def _fake_llm(model: str, prompt: str, prefer_json_object: bool = True) -> str:
+        return json.dumps({
+            "validations": [],
+            "new_obligations": [
+                {"quote": "Borrower shall maintain insurance.", "obligation_type": "compliance", "modality": "shall", "severity": "high"},
+                {"quote": "Lender shall give notice.", "obligation_type": "notification", "modality": "shall", "severity": "medium"},
+            ],
+            "new_risks": [
+                {"quote": "Default triggers foreclosure.", "risk_type": "contractual", "severity": "high"},
+            ],
+        })
+
+    # Verify returns evidence for ONLY the second new obligation; first is dedup'd.
+    # Mirrors the real behavior: _verify_* pre-loads existing evidence and skips
+    # rows whose quote is already in the DB.
+    def _fake_verify_obligations(db_sess, doc, pages, rows):
+        # First row treated as duplicate of pre-existing evidence -> no entry.
+        # Second row gets verified normally.
+        if len(rows) >= 2:
+            return {rows[1].id: ["evidence-stub"]}, {}
+        return {row.id: ["evidence-stub"] for row in rows}, {}
+
+    def _fake_verify_risks(db_sess, doc, pages, rows):
+        # All risks treated as duplicates -> all should be deleted as orphans.
+        return {}, {}
+
+    monkeypatch.setattr(critic_task, "SessionLocal", lambda: db)
+    monkeypatch.setattr(critic_task, "settings", fake_settings)
+    monkeypatch.setattr(critic_task, "update_parse_status", lambda *_a, **_k: None)
+    monkeypatch.setattr(critic_task, "llm_completion", _fake_llm)
+    monkeypatch.setattr(critic_task, "_verify_obligations", _fake_verify_obligations)
+    monkeypatch.setattr(critic_task, "_verify_risks", _fake_verify_risks)
+
+    result = critic_task.criticize_extractions(str(document.id))
+
+    assert result["status"] == "ok"
+    assert result["new_obligation_count"] == 1  # 2 created, 1 orphan deleted
+    assert result["orphan_obligation_count"] == 1
+    assert result["new_risk_count"] == 0  # 1 created, 1 orphan deleted
+    assert result["orphan_risk_count"] == 1
+    # Surviving obligation is the non-orphan one and is in the DB
+    assert len(db.obligations) == 1
+    # All risks were orphans -> none remain
+    assert len(db.risks) == 0
+    run = db.extraction_runs[0]
+    assert run.status == critic_task.ExtractionStatus.completed

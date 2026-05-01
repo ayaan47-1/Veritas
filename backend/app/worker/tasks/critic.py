@@ -450,10 +450,38 @@ def criticize_extractions(document_id: str) -> dict[str, object]:
             seen_risk_quotes.append(normalized_quote)
         db.commit()
 
+        # Verify the new items, then drop any that ended up without evidence.
+        # _verify_* now pre-loads existing evidence keys, so a critic-detected
+        # duplicate of an existing obligation/risk dedups to no evidence — we
+        # delete those orphans here so the no-claim-without-evidence guarantee
+        # holds.
+        orphan_new_obligations = 0
         if new_obligations_rows:
-            _verify_obligations(db, document, pages, new_obligations_rows)
+            new_ob_evidence, _ = _verify_obligations(db, document, pages, new_obligations_rows)
+            for ob in list(new_obligations_rows):
+                if ob.id not in new_ob_evidence:
+                    db.delete(ob)
+                    orphan_new_obligations += 1
+            if orphan_new_obligations:
+                db.commit()
+                logger.info(
+                    "critic.cleanup deleted %d orphan obligation(s) without evidence",
+                    orphan_new_obligations,
+                )
+
+        orphan_new_risks = 0
         if new_risk_rows:
-            _verify_risks(db, document, pages, new_risk_rows)
+            new_risk_evidence, _ = _verify_risks(db, document, pages, new_risk_rows)
+            for rk in list(new_risk_rows):
+                if rk.id not in new_risk_evidence:
+                    db.delete(rk)
+                    orphan_new_risks += 1
+            if orphan_new_risks:
+                db.commit()
+                logger.info(
+                    "critic.cleanup deleted %d orphan risk(s) without evidence",
+                    orphan_new_risks,
+                )
 
         run.completed_at = datetime.now(timezone.utc)
         run.raw_llm_output = {"outputs": outputs, "errors": errors}
@@ -474,8 +502,10 @@ def criticize_extractions(document_id: str) -> dict[str, object]:
             "failed_batch_count": len(errors),
             "validated_count": validations_applied,
             "auto_rejected_count": auto_rejected,
-            "new_obligation_count": len(new_obligations_rows),
-            "new_risk_count": len(new_risk_rows),
+            "new_obligation_count": len(new_obligations_rows) - orphan_new_obligations,
+            "new_risk_count": len(new_risk_rows) - orphan_new_risks,
+            "orphan_obligation_count": orphan_new_obligations,
+            "orphan_risk_count": orphan_new_risks,
         }
     except Exception as exc:
         db.rollback()
